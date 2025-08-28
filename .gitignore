@@ -1,2 +1,6 @@
 /target
 sequencer_venv
+.venv
+.idea
+.cursor
+.vscode
