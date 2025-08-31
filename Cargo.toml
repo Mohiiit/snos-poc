@@ -16,17 +16,17 @@ edition = "2021"
 # the above commit belongs to the 0.15.0-rc2 tag as well
 # https://github.com/starkware-libs/sequencer
 # commit below is just making a couple of things public for the usage!!!
-blockifier = { git = "https://github.com/Mohiiit/sequencer", rev="fe542e931c90eee7052ab4160348ad8ac296e3b9", features = ["testing"]}
-starknet_api = { git = "https://github.com/Mohiiit/sequencer", rev="fe542e931c90eee7052ab4160348ad8ac296e3b9", features = ["testing"]}
-starknet_os = { git = "https://github.com/Mohiiit/sequencer", rev="fe542e931c90eee7052ab4160348ad8ac296e3b9", features = ["testing"]}
-starknet_patricia = { git = "https://github.com/Mohiiit/sequencer", rev="fe542e931c90eee7052ab4160348ad8ac296e3b9", features = ["testing"]}
-shared_execution_objects = { git = "https://github.com/Mohiiit/sequencer", rev="fe542e931c90eee7052ab4160348ad8ac296e3b9"}
+blockifier = { git = "https://github.com/karnotxyz/sequencer", rev="3c206344dc64b5a0f150ea94cd2623b2a9a7da63", features = ["testing"]}
+starknet_api = { git = "https://github.com/karnotxyz/sequencer", rev="3c206344dc64b5a0f150ea94cd2623b2a9a7da63", features = ["testing"]}
+starknet_os = { git = "https://github.com/karnotxyz/sequencer", rev="3c206344dc64b5a0f150ea94cd2623b2a9a7da63", features = ["testing"]}
+starknet_patricia = { git = "https://github.com/karnotxyz/sequencer", rev="3c206344dc64b5a0f150ea94cd2623b2a9a7da63", features = ["testing"]}
+shared_execution_objects = { git = "https://github.com/karnotxyz/sequencer", rev="3c206344dc64b5a0f150ea94cd2623b2a9a7da63"}
 
 cairo-lang-starknet = { version = "=2.12.0-dev.1" }
 cairo-lang-starknet-classes = { version = "=2.12.0-dev.1" }
 cairo-lang-utils = { version = "=2.12.0-dev.1" }
 cairo-lang-casm = { version = "=2.12.0-dev.1" }
-cairo-vm = "2.2.0"
+cairo-vm = "=2.2.0"
 starknet = "0.16.0"
 starknet-types-core = "0.1.5"
 

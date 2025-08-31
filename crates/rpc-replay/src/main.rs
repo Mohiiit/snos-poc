@@ -144,14 +144,14 @@ async fn check_blocks_exist(
 /// Process a set of 1 block and generate PIE
 async fn process_block_set(args: &Args, blocks: &[u64; 1]) -> Result<String, PieGenerationError> {
     let timestamp = Utc::now().format("%Y%m%d_%H%M%S");
-    let output_filename = format!("cairo_pie_blocks_{}_{}.zip", blocks[0], timestamp);
+    let output_filename = format!("cairo_pie_blocks_{}.zip", blocks[0]);
 
     let input = PieGenerationInput {
         rpc_url: args.rpc_url.clone(),
         blocks: blocks.to_vec(),
         chain_config: ChainConfig::default(),
         os_hints_config: OsHintsConfiguration::default(),
-        output_path: None, // we don't want a lots of zips just yet
+        output_path: Some(output_filename.clone()), // we don't want a lots of zips just yet
     };
 
     info!("🔄 Starting PIE generation for blocks {:?}", blocks);

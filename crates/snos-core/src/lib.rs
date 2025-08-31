@@ -55,8 +55,8 @@ impl Default for OsHintsConfiguration {
     fn default() -> Self {
         Self {
             debug_mode: true,
-            full_output: false,
-            use_kzg_da: true,
+            full_output: true,
+            use_kzg_da: false,
         }
     }
 }
@@ -184,6 +184,8 @@ pub async fn generate_pie(
         os_block_inputs.len(),
         cached_state_inputs.len()
     );
+    // let felt_to_match = Felt::from_hex_unchecked("0x44ea0d21fdaecd913b9c6574d85800b45a973413edab4f5400ecd756b5b2ea");
+    // assert!()
 
     log::info!("Building OS hints configuration for multi-block processing");
     let os_hints = OsHints {
