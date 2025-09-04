@@ -1,42 +1,89 @@
 # Multi-stage build for rpc-replay
-FROM rust:1.75-bullseye as builder
+FROM --platform=linux/amd64 ubuntu:22.04 AS builder
+
+# Set environment variables
+ENV DEBIAN_FRONTEND=noninteractive
+ENV RUSTUP_HOME=/usr/local/rustup
+ENV CARGO_HOME=/usr/local/cargo
+ENV PATH=/usr/local/cargo/bin:$PATH
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    curl \
+    pkg-config \
+    libssl-dev \
+    libgmp-dev \
+    python3 \
+    python3-pip \
+    python3-venv \
+    python3-dev \
+    git \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Rust for linux/amd64
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain 1.87 \
+    && . /usr/local/cargo/env \
+    && rustup target add x86_64-unknown-linux-gnu
 
 # Set the working directory
 WORKDIR /app
 
-# Install system dependencies
-RUN apt-get update && apt-get install -y \
-    pkg-config \
-    libssl-dev \
-    libgmp-dev \
-    build-essential \
-    && rm -rf /var/lib/apt/lists/*
-
 # Copy the entire workspace
 COPY . .
 
-# Build the rpc-replay binary in release mode
-RUN cargo build --release --bin rpc-replay
+# Create Python virtual environment (force recreation)
+RUN rm -rf sequencer_venv || true
+RUN python3 -m venv sequencer_venv
 
-# Runtime stage - using Ubuntu as requested
-FROM ubuntu:22.04
+# Verify venv was created correctly
+RUN ls -la sequencer_venv/bin/
+
+# Install Python dependencies
+RUN sequencer_venv/bin/pip install --upgrade pip
+
+# Fetch cargo dependencies first
+RUN . /usr/local/cargo/env && cargo fetch || true
+
+# Install requirements if found
+RUN if find /usr/local/cargo/git/checkouts -name "requirements.txt" -path "*/scripts/*" 2>/dev/null | head -1; then \
+        REQS_FILE=$(find /usr/local/cargo/git/checkouts -name "requirements.txt" -path "*/scripts/*" | head -1); \
+        echo "Found requirements.txt at: $REQS_FILE"; \
+        sequencer_venv/bin/pip install -r "$REQS_FILE"; \
+    else \
+        echo "No requirements.txt found, skipping pip install"; \
+    fi
+
+# Build the rpc-replay binary
+RUN . sequencer_venv/bin/activate \
+    && . /usr/local/cargo/env \
+    && cargo build --release --bin rpc-replay
+
+# Runtime stage
+FROM --platform=linux/amd64 ubuntu:22.04
 
 # Install runtime dependencies
 RUN apt-get update && apt-get install -y \
     ca-certificates \
     libssl3 \
     libgmp10 \
+    python3 \
+    python3-venv \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean
 
 # Create a non-root user
 RUN useradd -m -u 1000 appuser
 
-# Create output directory
-RUN mkdir -p /app/output && chown appuser:appuser /app/output
+# Create directories for logs and output
+RUN mkdir -p /app/output /app/logs && chown -R appuser:appuser /app
 
 # Copy the binary from builder stage
 COPY --from=builder /app/target/release/rpc-replay /usr/local/bin/rpc-replay
+
+# Copy Python virtual environment
+COPY --from=builder /app/sequencer_venv /app/sequencer_venv
 
 # Set proper permissions
 RUN chmod +x /usr/local/bin/rpc-replay
@@ -47,18 +94,19 @@ USER appuser
 # Set working directory
 WORKDIR /app
 
-# Set environment variables for logging
+# Set default environment variables (can be overridden at runtime)
 ENV RUST_LOG=info
 ENV RUST_BACKTRACE=1
+ENV RUST_LOG_STYLE=always
+ENV PATH=/app/sequencer_venv/bin:$PATH
 
-# Default arguments (can be overridden at runtime)
-ENV START_BLOCK=1309257
-ENV RPC_URL="https://pathfinder-madara-ci.d.karnot.xyz"
-ENV INTERVAL=30
-ENV OUTPUT_DIR="/app/output"
+# Expose volumes for output files and logs
+VOLUME ["/app/output", "/app/logs"]
 
-# Expose volume for output files
-VOLUME ["/app/output"]
+# Health check to ensure the application is running
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD pgrep rpc-replay || exit 1
 
-# Default command - uses environment variables
-CMD ["sh", "-c", "rpc-replay --start-block $START_BLOCK --rpc-url $RPC_URL --interval $INTERVAL --output-dir $OUTPUT_DIR"]
+# Default command - passes all arguments to the binary
+ENTRYPOINT ["rpc-replay"]
+CMD ["--help"]
