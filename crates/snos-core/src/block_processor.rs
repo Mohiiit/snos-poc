@@ -603,7 +603,8 @@ pub async fn collect_single_block_info(
     let mut class_hashes: Vec<&Felt252> = class_hash_to_compiled_class_hash.keys().collect();
     println!(
         "  Step 14: Fetching class proofs for {} class hashes... and the class hashs are: {:?}",
-        class_hashes.len(), class_hashes
+        class_hashes.len(),
+        class_hashes
     );
     // TODO: we fetch proofs here for block-1, but we probably also need to fetch at the current
     //       block, likely for contracts that are deployed in this block

@@ -101,7 +101,8 @@ pub async fn generate_cached_state_input(
         {
             Ok(compiled_hash) => compiled_hash,
             Err(e) => {
-                class_hash_to_compiled_class_hash.insert(*class_hash, CompiledClassHash(Felt::ZERO));
+                class_hash_to_compiled_class_hash
+                    .insert(*class_hash, CompiledClassHash(Felt::ZERO));
                 // If we can't get the compiled class hash, skip it
                 continue;
             }
