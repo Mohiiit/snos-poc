@@ -151,7 +151,7 @@ async fn process_block_set(args: &Args, blocks: &[u64; 1]) -> Result<String, Pie
         blocks: blocks.to_vec(),
         chain_config: ChainConfig::default(),
         os_hints_config: OsHintsConfiguration::default(),
-        output_path: Some(output_filename.clone()), // we don't want a lots of zips just yet
+        output_path: None, // we don't want a lots of zips just yet
     };
 
     info!("🔄 Starting PIE generation for blocks {:?}", blocks);

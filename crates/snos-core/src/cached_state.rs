@@ -2,7 +2,7 @@ use rpc_client::state_reader::AsyncRpcStateReader;
 use rpc_client::RpcClient;
 use starknet::core::types::BlockId;
 use starknet::providers::Provider;
-use starknet_api::core::{ClassHash, ContractAddress, Nonce};
+use starknet_api::core::{ClassHash, CompiledClassHash, ContractAddress, Nonce};
 use starknet_api::state::StorageKey;
 use starknet_os::io::os_input::CachedStateInput;
 use starknet_types_core::felt::Felt;
@@ -100,7 +100,8 @@ pub async fn generate_cached_state_input(
             .await
         {
             Ok(compiled_hash) => compiled_hash,
-            Err(_) => {
+            Err(e) => {
+                class_hash_to_compiled_class_hash.insert(*class_hash, CompiledClassHash(Felt::ZERO));
                 // If we can't get the compiled class hash, skip it
                 continue;
             }

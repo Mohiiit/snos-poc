@@ -54,7 +54,7 @@ pub fn build_block_context(
                 ))
                 .unwrap(),
                 l2_gas_price: NonzeroGasPrice::new(GasPrice(
-                    felt_to_u128(&Felt::from_hex("0x199fe").unwrap()).unwrap(),
+                    felt_to_u128(&&block.l2_gas_price.price_in_wei).unwrap(),
                 ))
                 .unwrap(),
             }, //TODO: update the gas prices for the right block info
@@ -68,7 +68,7 @@ pub fn build_block_context(
                 ))
                 .unwrap(),
                 l2_gas_price: NonzeroGasPrice::new(GasPrice(
-                    felt_to_u128(&Felt::from_hex("0xb2d05e00").unwrap()).unwrap(),
+                    felt_to_u128(&block.l2_gas_price.price_in_fri).unwrap(),
                 ))
                 .unwrap(),
             },

@@ -5,7 +5,7 @@ use crate::rpc_utils::{get_accessed_keys_with_block_hash, get_class_proofs, get_
 use crate::state_update::{get_formatted_state_update, get_subcalled_contracts_from_tx_traces};
 use blockifier::blockifier::config::TransactionExecutorConfig;
 use blockifier::blockifier::transaction_executor::{TransactionExecutor, TransactionExecutorError};
-use blockifier::state::cached_state::CachedState;
+use blockifier::state::cached_state::{CachedState, StateMaps};
 use blockifier::test_utils::maybe_dummy_block_hash_and_number;
 use blockifier::transaction::objects::TransactionExecutionInfo;
 use cairo_lang_starknet_classes::casm_contract_class::CasmContractClass;
@@ -325,11 +325,13 @@ pub async fn collect_single_block_info(
         .map(|felt| ContractAddress::try_from(*felt).expect("Invalid contract address"))
         .collect();
 
-    let accessed_classes: HashSet<ClassHash> = accessed_classes_felt
+    let mut accessed_classes: HashSet<ClassHash> = accessed_classes_felt
         .iter()
         .map(|felt| ClassHash((*felt).into()))
         .collect();
 
+    // log::debug!(">>>> classes from the traces are: {:?}", accessed_classes);
+    // panic!("temp");
     println!(
         "Successfully Found {} accessed addresses and {} accessed classes",
         accessed_addresses.len(),
@@ -348,6 +350,7 @@ pub async fn collect_single_block_info(
     )
     .await
     .expect("issue while calling formatted state update");
+    // panic!("time out");
     // println!("formatted state update is: {:?}", processed_state_update);
     println!("Successfully State update processed successfully");
     println!(" Step 8: Converting transactions to blockifier format...");
@@ -597,10 +600,10 @@ pub async fn collect_single_block_info(
     let class_hash_to_compiled_class_hash =
         processed_state_update.class_hash_to_compiled_class_hash;
     // query storage proofs for each accessed contract
-    let class_hashes: Vec<&Felt252> = class_hash_to_compiled_class_hash.keys().collect();
+    let mut class_hashes: Vec<&Felt252> = class_hash_to_compiled_class_hash.keys().collect();
     println!(
-        "  Step 14: Fetching class proofs for {} class hashes...",
-        class_hashes.len()
+        "  Step 14: Fetching class proofs for {} class hashes... and the class hashs are: {:?}",
+        class_hashes.len(), class_hashes
     );
     // TODO: we fetch proofs here for block-1, but we probably also need to fetch at the current
     //       block, likely for contracts that are deployed in this block
@@ -609,6 +612,9 @@ pub async fn collect_single_block_info(
         .expect("Failed to fetch class proofs");
     println!("Successfully Got {} class proofs", class_proofs.len());
 
+    // before fetching the class proof at previous block, we can remove the ones which are declared in the new one
+    // class_hashes.retain(|&x| !declared_class_hash_component_hashes.contains_key(&ClassHash(*x)));
+    accessed_classes.extend(declared_class_hash_component_hashes.keys());
     println!(" Step 15: Fetching previous class proofs...");
     let previous_class_proofs = match previous_block_id {
         Some(BlockId::Number(previous_block_id)) => {
