@@ -1,5 +1,4 @@
 use cairo_vm::types::layout_name::LayoutName;
-use rpc_client::state_reader::AsyncRpcStateReader;
 use rpc_client::RpcClient;
 use starknet::core::types::BlockId;
 use starknet_api::core::{ChainId, ContractAddress};
@@ -133,8 +132,6 @@ pub async fn generate_pie(
             input.blocks.len()
         );
 
-        let _blockifier_state_reader =
-            AsyncRpcStateReader::new(rpc_client.clone(), BlockId::Number(*block_number));
         log::info!("State reader created for block {}", block_number);
 
         log::info!("Starting to collect block info for block {}", block_number);
@@ -157,7 +154,7 @@ pub async fn generate_pie(
         all_deprecated_compiled_classes.extend(deprecated_compiled_classes);
 
         // Generate cached state input
-        log::info!("Generating cached state input for block {}", block_number);
+        log::debug!("Generating cached state input for block {}", block_number);
         let cached_state_input = generate_cached_state_input(
             &rpc_client,
             BlockId::Number(block_number - 1),
@@ -168,10 +165,7 @@ pub async fn generate_pie(
         .await
         .map_err(|e| PieGenerationError::BlockProcessing {
             block_number: *block_number,
-            source: Box::new(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                format!("{:?}", e),
-            )),
+            source: Box::new(std::io::Error::other(format!("{:?}", e))),
         })?;
 
         cached_state_inputs.push(cached_state_input);
@@ -179,13 +173,15 @@ pub async fn generate_pie(
     }
 
     log::info!("=== Finalizing multi-block processing ===");
-    log::info!(
+    log::debug!(
         "OS inputs prepared with {} block inputs and {} cached state inputs",
         os_block_inputs.len(),
         cached_state_inputs.len()
     );
+    // let felt_to_match = Felt::from_hex_unchecked("0x44ea0d21fdaecd913b9c6574d85800b45a973413edab4f5400ecd756b5b2ea");
+    // assert!()
 
-    log::info!("Building OS hints configuration for multi-block processing");
+    log::debug!("Building OS hints configuration for multi-block processing");
     let os_hints = OsHints {
         os_hints_config: OsHintsConfig {
             debug_mode: input.os_hints_config.debug_mode,
@@ -208,7 +204,7 @@ pub async fn generate_pie(
         input.blocks.len()
     );
 
-    log::info!("Starting OS execution for multi-block processing");
+    log::debug!("Starting OS execution for multi-block processing");
     log::info!("Using layout: {:?}", LayoutName::all_cairo);
     let output = run_os_stateless(LayoutName::all_cairo, os_hints)
         .map_err(|e| PieGenerationError::OsExecution(format!("{:?}", e)))?;
@@ -230,6 +226,12 @@ pub async fn generate_pie(
         "PIE generation completed successfully for blocks {:?}",
         input.blocks
     );
+
+    log::info!("");
+    log::info!("🎉 ================================================ 🎉");
+    log::info!("✅ PIE GENERATION COMPLETED AND VALIDATED SUCCESSFULLY ✅");
+    log::info!("🎉 ================================================ 🎉");
+    log::info!("");
 
     Ok(PieGenerationResult {
         output,

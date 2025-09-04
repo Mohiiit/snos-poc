@@ -158,7 +158,7 @@ mod tests {
     fn test_decompress_legacy_class() {
         let legacy_class: LegacyContractClass = serde_json::from_slice(DEPRECATED_CLASS).unwrap();
         let compressed_legacy_class = legacy_class.compress().unwrap();
-        let _decompressed_legacy_class =
+        let decompressed_legacy_class =
             decompress_starknet_core_contract_class(compressed_legacy_class).unwrap();
     }
 }

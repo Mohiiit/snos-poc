@@ -1,7 +1,4 @@
 use std::collections::VecDeque;
-use std::fs::File;
-use std::io::Write;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use reqwest::{Response, StatusCode};
 use serde::de::DeserializeOwned;
@@ -188,52 +185,11 @@ impl PathfinderRpcClient {
     }
 }
 
-fn write_proof_to_json(
-    proof: &GetStorageProofResponse,
-    block_number: u64,
-    contract_address: Felt,
-    keys: &[Felt],
-) -> std::io::Result<()> {
-    let timestamp = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_secs();
-
-    let json_string = serde_json::to_string_pretty(proof)?;
-    let keys_string = keys
-        .iter()
-        .map(|k| k.to_hex_string())
-        .collect::<Vec<String>>()
-        .join("_");
-    let filename = if keys_string.is_empty() {
-        format!(
-            "storage_proof_response_{}_{}_{}_{}.json",
-            block_number,
-            contract_address.to_hex_string(),
-            "no_keys",
-            timestamp
-        )
-    } else {
-        format!(
-            "storage_proof_response_{}_{}_{}__{}.json",
-            block_number,
-            contract_address.to_hex_string(),
-            keys_string,
-            timestamp
-        )
-    };
-
-    let mut file = File::create(filename)?;
-    file.write_all(json_string.as_bytes())?;
-    println!("✅ Storage proof written to storage_proof_response.json");
-    Ok(())
-}
-
 pub(crate) fn official_proof_to_pathfinder_proof(
     proof: GetStorageProofResponse,
-    block_number: u64,
-    contract_address: Felt,
-    keys: &[Felt],
+    _block_number: u64,
+    _contract_address: Felt,
+    _keys: &[Felt],
 ) -> PathfinderProof {
     // write_proof_to_json(&proof, block_number, contract_address, keys).unwrap();
     // panic!("temp");

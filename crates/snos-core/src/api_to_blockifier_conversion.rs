@@ -27,12 +27,14 @@ use thiserror::Error;
 
 /// Struct to hold both starknet-api and blockifier transaction representations
 #[derive(Debug)]
+#[warn(clippy::result_large_err)]
 pub struct TransactionConversionResult {
     pub starknet_api_tx: starknet_api::executable_transaction::Transaction,
     pub blockifier_tx: blockifier::transaction::transaction_execution::Transaction,
 }
 
 #[derive(Error, Debug)]
+#[allow(dead_code)]
 pub enum FeltConversionError {
     #[error("Overflow Error: Felt exceeds u128 max value")]
     OverflowError,
@@ -52,6 +54,8 @@ pub fn felt_to_u128(felt: &Felt) -> Result<u128, FeltConversionError> {
     Ok(((digits[2] as u128) << 64) + digits[3] as u128)
 }
 #[derive(Error, Debug)]
+#[allow(dead_code)]
+#[allow(clippy::enum_variant_names)]
 pub enum ToBlockifierError {
     #[error("RPC Error: {0}")]
     RpcError(#[from] ProviderError),
@@ -90,7 +94,7 @@ pub fn resource_bounds_core_to_api(
     // ]))
     starknet_api::transaction::fields::ValidResourceBounds::AllResources(AllResourceBounds {
         l1_gas: starknet_api::transaction::fields::ResourceBounds {
-            max_amount: GasAmount(resource_bounds.l1_gas.max_amount.into()),
+            max_amount: GasAmount(resource_bounds.l1_gas.max_amount),
             max_price_per_unit: GasPrice(resource_bounds.l1_gas.max_price_per_unit),
         },
         l1_data_gas: starknet_api::transaction::fields::ResourceBounds {
@@ -121,7 +125,6 @@ fn invoke_v1_to_blockifier(
     tx: &InvokeTransactionV1,
     chain_id: ChainId,
 ) -> Result<TransactionConversionResult, ToBlockifierError> {
-    let _tx_hash = TransactionHash(tx.transaction_hash);
     let api_tx = starknet_api::transaction::InvokeTransaction::V1(
         starknet_api::transaction::InvokeTransactionV1 {
             max_fee: Fee(felt_to_u128(&tx.max_fee)?),
@@ -155,7 +158,6 @@ fn invoke_v3_to_blockifier(
     tx: &InvokeTransactionV3,
     chain_id: ChainId,
 ) -> Result<TransactionConversionResult, ToBlockifierError> {
-    let _tx_hash = TransactionHash(tx.transaction_hash);
     let api_tx = starknet_api::transaction::InvokeTransaction::V3(
         starknet_api::transaction::InvokeTransactionV3 {
             resource_bounds: resource_bounds_core_to_api(&tx.resource_bounds),
@@ -262,7 +264,6 @@ async fn declare_v0_to_blockifier(
     block_number: u64,
     chain_id: ChainId,
 ) -> Result<TransactionConversionResult, ToBlockifierError> {
-    let _tx_hash = TransactionHash(tx.transaction_hash);
     let api_tx = starknet_api::transaction::DeclareTransaction::V0(
         starknet_api::transaction::DeclareTransactionV0V1 {
             max_fee: starknet_api::transaction::fields::Fee(felt_to_u128(&tx.max_fee)?),
@@ -307,7 +308,6 @@ async fn declare_v1_to_blockifier(
     block_number: u64,
     chain_id: ChainId,
 ) -> Result<TransactionConversionResult, ToBlockifierError> {
-    let _tx_hash = TransactionHash(tx.transaction_hash);
     let api_tx = starknet_api::transaction::DeclareTransaction::V1(
         starknet_api::transaction::DeclareTransactionV0V1 {
             max_fee: starknet_api::transaction::fields::Fee(felt_to_u128(&tx.max_fee)?),
@@ -350,7 +350,6 @@ async fn declare_v2_to_blockifier(
     block_number: u64,
     chain_id: ChainId,
 ) -> Result<TransactionConversionResult, ToBlockifierError> {
-    let _tx_hash = TransactionHash(tx.transaction_hash);
     let api_tx = starknet_api::transaction::DeclareTransaction::V2(
         starknet_api::transaction::DeclareTransactionV2 {
             max_fee: starknet_api::transaction::fields::Fee(felt_to_u128(&tx.max_fee)?),
@@ -394,7 +393,6 @@ async fn declare_v3_to_blockifier(
     block_number: u64,
     chain_id: ChainId,
 ) -> Result<TransactionConversionResult, ToBlockifierError> {
-    let _tx_hash = TransactionHash(tx.transaction_hash);
     let api_tx = starknet_api::transaction::DeclareTransaction::V3(
         starknet_api::transaction::DeclareTransactionV3 {
             resource_bounds: resource_bounds_core_to_api(&tx.resource_bounds),
@@ -509,8 +507,6 @@ fn deploy_account_v1_to_blockifier(
     tx: &DeployAccountTransactionV1,
     chain_id: ChainId,
 ) -> Result<TransactionConversionResult, ToBlockifierError> {
-    let _tx_hash = TransactionHash(tx.transaction_hash);
-
     let (max_fee, signature, nonce, class_hash, constructor_calldata, contract_address_salt) = (
         Fee(felt_to_u128(&tx.max_fee)?),
         starknet_api::transaction::fields::TransactionSignature(Arc::new(tx.signature.to_vec())),
@@ -558,7 +554,6 @@ fn deploy_account_v3_to_blockifier(
     tx: &DeployAccountTransactionV3,
     chain_id: ChainId,
 ) -> Result<TransactionConversionResult, StarknetApiError> {
-    let _tx_hash = TransactionHash(tx.transaction_hash);
     let api_tx = starknet_api::transaction::DeployAccountTransaction::V3(
         starknet_api::transaction::DeployAccountTransactionV3 {
             resource_bounds: resource_bounds_core_to_api(&tx.resource_bounds),

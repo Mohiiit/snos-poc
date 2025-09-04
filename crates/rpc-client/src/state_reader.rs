@@ -6,6 +6,7 @@ use blockifier::execution::contract_class::{
 use blockifier::state::errors::StateError;
 use blockifier::state::state_api::{StateReader, StateResult};
 use cairo_lang_starknet_classes::contract_class::version_id_from_serialized_sierra_program;
+use log::{debug, warn};
 use starknet::core::types::{BlockId, Felt, StarknetError};
 use starknet::providers::{Provider, ProviderError};
 use starknet_api::contract_class::SierraVersion;
@@ -45,7 +46,10 @@ impl AsyncRpcStateReader {
         contract_address: ContractAddress,
         key: StorageKey,
     ) -> StateResult<Felt> {
-        println!("got a request of get_storage_at with parameters the contract address: {:?} and the key: {:?}", contract_address, key);
+        debug!(
+            "get_storage_at request - contract: {:?}, key: {:?}",
+            contract_address, key
+        );
         let storage_value = match self
             .rpc_client
             .starknet_rpc()
@@ -64,10 +68,7 @@ impl AsyncRpcStateReader {
         &self,
         contract_address: ContractAddress,
     ) -> StateResult<Nonce> {
-        println!(
-            "got a request of get_nonce_at with parameters the contract address: {:?}",
-            contract_address
-        );
+        debug!("get_nonce_at request - contract: {:?}", contract_address);
         let res = self
             .rpc_client
             .starknet_rpc()
@@ -85,8 +86,8 @@ impl AsyncRpcStateReader {
         &self,
         contract_address: ContractAddress,
     ) -> StateResult<ClassHash> {
-        println!(
-            "got a request of get_class_hash_at with parameters the contract address: {:?}",
+        debug!(
+            "get_class_hash_at request - contract: {:?}",
             contract_address
         );
         let class_hash = match self
@@ -109,7 +110,7 @@ impl AsyncRpcStateReader {
         &self,
         class_hash: ClassHash,
     ) -> StateResult<RunnableCompiledClass> {
-        println!(
+        log::debug!(
             "got a request of get_compiled_class with parameters the class hash: {:?}",
             class_hash
         );
@@ -133,7 +134,7 @@ impl AsyncRpcStateReader {
         let runnable_contract_class: RunnableCompiledClass = match contract_class {
             starknet::core::types::ContractClass::Sierra(sierra_class) => {
                 // The key insight: Fix the ABI field encoding issue
-                println!("Converting Sierra contract class with ABI fix...");
+                debug!("Converting Sierra contract class with ABI fix...");
 
                 // First, serialize the sierra class to JSON
                 let sierra_json = serde_json::to_string(&sierra_class).map_err(to_state_err)?;
@@ -149,11 +150,11 @@ impl AsyncRpcStateReader {
                         // Try to parse the ABI string as JSON
                         match serde_json::from_str::<serde_json::Value>(abi_str) {
                             Ok(abi_json) => {
-                                println!("✅ Successfully parsed ABI string as JSON");
+                                debug!("✅ Successfully parsed ABI string as JSON");
                                 *abi_field = abi_json;
                             }
                             Err(e) => {
-                                println!("⚠️  ABI is not valid JSON string: {}", e);
+                                warn!("⚠️  ABI is not valid JSON string: {}", e);
                                 // Keep the ABI as-is if it's not a JSON string
                             }
                         }
@@ -183,7 +184,7 @@ impl AsyncRpcStateReader {
                 // Try compilation
                 match generic_sierra.compile() {
                     Ok(compiled_class) => {
-                        println!("✅ Sierra compilation succeeded!");
+                        debug!("✅ Sierra compilation succeeded!");
                         let versioned_casm = compiled_class
                             .to_blockifier_contract_class(sierra_version)
                             .map_err(to_state_err)?;
@@ -200,7 +201,7 @@ impl AsyncRpcStateReader {
                         RunnableCompiledClass::V1(compiled_class_v1)
                     }
                     Err(e) => {
-                        println!("⚠️  Sierra compilation failed: {}", e);
+                        warn!("⚠️  Sierra compilation failed: {}", e);
                         return Err(StateError::StateReadError(format!(
                             "Sierra compilation failed: {}",
                             e
@@ -252,7 +253,7 @@ impl AsyncRpcStateReader {
         &self,
         class_hash: ClassHash,
     ) -> StateResult<CompiledClassHash> {
-        println!(
+        log::debug!(
             "got a request of get_compiled_class_hash with parameters the class hash: {:?}",
             class_hash
         );
@@ -348,6 +349,7 @@ impl StateReader for AsyncRpcStateReader {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use log::info;
     use starknet_types_core::felt::Felt as StarknetTypesFelt;
 
     fn create_test_rpc_client() -> RpcClient {
@@ -380,7 +382,7 @@ mod tests {
         let state_reader = AsyncRpcStateReader::new(rpc_client, block_id);
 
         // Verify the state reader was created successfully
-        println!("✅ AsyncRpcStateReader created successfully");
+        info!("✅ AsyncRpcStateReader created successfully");
         assert_eq!(state_reader.block_id, BlockId::Number(1309254));
     }
 
@@ -390,21 +392,21 @@ mod tests {
         let (contract_address, storage_key, class_hash, block_id) = create_test_values();
         let state_reader = AsyncRpcStateReader::new(rpc_client, block_id);
 
-        println!("Testing real RPC calls with:");
-        println!("  RPC URL: https://pathfinder-madara-ci.d.karnot.xyz");
-        println!("  Block: {:?}", block_id);
-        println!("  Contract: {:?}", contract_address);
-        println!("  Storage Key: {:?}", storage_key);
-        println!("  Class Hash: {:?}", class_hash);
+        info!("Testing real RPC calls with:");
+        info!("  RPC URL: https://pathfinder-madara-ci.d.karnot.xyz");
+        info!("  Block: {:?}", block_id);
+        info!("  Contract: {:?}", contract_address);
+        info!("  Storage Key: {:?}", storage_key);
+        info!("  Class Hash: {:?}", class_hash);
 
         // Test get_storage_at_async - this should succeed
-        println!("\n🔍 Testing get_storage_at_async...");
+        info!("🔍 Testing get_storage_at_async...");
         match state_reader
             .get_storage_at_async(contract_address, storage_key)
             .await
         {
             Ok(storage_value) => {
-                println!("✅ get_storage_at_async succeeded: {:?}", storage_value);
+                info!("✅ get_storage_at_async succeeded: {:?}", storage_value);
                 // Verify we got a valid Felt value
                 assert!(std::any::type_name_of_val(&storage_value).contains("Felt"));
             }
@@ -414,10 +416,10 @@ mod tests {
         }
 
         // Test get_nonce_at_async - this should succeed
-        println!("\n🔍 Testing get_nonce_at_async...");
+        info!("🔍 Testing get_nonce_at_async...");
         match state_reader.get_nonce_at_async(contract_address).await {
             Ok(nonce) => {
-                println!("✅ get_nonce_at_async succeeded: {:?}", nonce);
+                info!("✅ get_nonce_at_async succeeded: {:?}", nonce);
                 // Verify we got a valid Nonce value
                 assert_eq!(
                     std::any::type_name_of_val(&nonce),
@@ -430,10 +432,10 @@ mod tests {
         }
 
         // Test get_class_hash_at_async - this should succeed
-        println!("\n🔍 Testing get_class_hash_at_async...");
+        info!("🔍 Testing get_class_hash_at_async...");
         match state_reader.get_class_hash_at_async(contract_address).await {
             Ok(returned_class_hash) => {
-                println!(
+                info!(
                     "✅ get_class_hash_at_async succeeded: {:?}",
                     returned_class_hash
                 );
@@ -449,24 +451,24 @@ mod tests {
         }
 
         // Test get_compiled_class_async - this is the critical test for our type conversions
-        println!("\n🔍 Testing get_compiled_class_async (the big test!)...");
+        info!("🔍 Testing get_compiled_class_async (the big test!)...");
         match state_reader.get_compiled_class_async(class_hash).await {
             Ok(runnable_class) => {
-                println!("✅ get_compiled_class_async succeeded!");
+                info!("✅ get_compiled_class_async succeeded!");
 
                 // Verify we got a valid RunnableCompiledClass
                 match runnable_class {
                     RunnableCompiledClass::V0(_) => {
-                        println!("✅ Got RunnableCompiledClass::V0 (Legacy contract)");
-                        println!("✅ All type conversions for Legacy contracts working!");
+                        info!("✅ Got RunnableCompiledClass::V0 (Legacy contract)");
+                        info!("✅ All type conversions for Legacy contracts working!");
                     }
                     RunnableCompiledClass::V1(_) => {
-                        println!("✅ Got RunnableCompiledClass::V1 (Sierra contract)");
-                        println!("✅ All type conversions for Sierra contracts working!");
+                        info!("✅ Got RunnableCompiledClass::V1 (Sierra contract)");
+                        info!("✅ All type conversions for Sierra contracts working!");
                     }
                     #[cfg(feature = "cairo_native")]
                     RunnableCompiledClass::V1Native(_) => {
-                        println!("✅ Got RunnableCompiledClass::V1Native (Native contract)");
+                        info!("✅ Got RunnableCompiledClass::V1Native (Native contract)");
                     }
                 }
             }
@@ -476,10 +478,10 @@ mod tests {
         }
 
         // Test get_compiled_class_hash_async
-        println!("\n🔍 Testing get_compiled_class_hash_async...");
+        info!("🔍 Testing get_compiled_class_hash_async...");
         match state_reader.get_compiled_class_hash_async(class_hash).await {
             Ok(compiled_class_hash) => {
-                println!(
+                info!(
                     "✅ get_compiled_class_hash_async succeeded: {:?}",
                     compiled_class_hash
                 );
@@ -494,9 +496,9 @@ mod tests {
             }
         }
 
-        println!("\n🎉 ALL REAL RPC TESTS PASSED! 🎉");
-        println!("✅ All type conversions work with real blockchain data");
-        println!("✅ AsyncRpcStateReader is production ready");
+        info!("🎉 ALL REAL RPC TESTS PASSED! 🎉");
+        info!("✅ All type conversions work with real blockchain data");
+        info!("✅ AsyncRpcStateReader is production ready");
     }
 
     #[test]
@@ -508,14 +510,14 @@ mod tests {
 
         let (contract_address, storage_key, class_hash, _) = create_test_values();
 
-        println!("Testing sync method error handling (should fail gracefully without runtime)...");
+        info!("Testing sync method error handling (should fail gracefully without runtime)...");
 
         // These should fail with runtime errors but not panic
         let storage_result = state_reader.get_storage_at(contract_address, storage_key);
         match storage_result {
             Ok(_) => panic!("❌ Unexpected success - should fail without runtime"),
             Err(e) => {
-                println!("✅ get_storage_at failed gracefully: {}", e);
+                info!("✅ get_storage_at failed gracefully: {}", e);
                 assert!(e.to_string().contains("runtime") || e.to_string().contains("reactor"));
             }
         }
@@ -524,12 +526,12 @@ mod tests {
         match nonce_result {
             Ok(_) => panic!("❌ Unexpected success - should fail without runtime"),
             Err(e) => {
-                println!("✅ get_nonce_at failed gracefully: {}", e);
+                info!("✅ get_nonce_at failed gracefully: {}", e);
                 assert!(e.to_string().contains("runtime") || e.to_string().contains("reactor"));
             }
         }
 
-        println!("✅ Sync methods handle runtime errors correctly");
+        info!("✅ Sync methods handle runtime errors correctly");
     }
 
     #[tokio::test]
@@ -542,7 +544,7 @@ mod tests {
         let invalid_contract = ContractAddress::try_from(StarknetTypesFelt::ZERO).unwrap();
         let invalid_storage_key = StorageKey::try_from(StarknetTypesFelt::ONE).unwrap();
 
-        println!("Testing error handling with invalid values...");
+        info!("Testing error handling with invalid values...");
 
         // This should either succeed (returning ZERO) or fail gracefully
         match state_reader
@@ -550,14 +552,14 @@ mod tests {
             .await
         {
             Ok(value) => {
-                println!(
+                info!(
                     "✅ get_storage_at with invalid contract returned: {:?}",
                     value
                 );
                 // Should be zero for non-existent storage
             }
             Err(e) => {
-                println!(
+                info!(
                     "✅ get_storage_at with invalid contract failed gracefully: {}",
                     e
                 );
@@ -573,7 +575,7 @@ mod tests {
         {
             Ok(_) => panic!("❌ Should not succeed with invalid class hash"),
             Err(e) => {
-                println!(
+                info!(
                     "✅ get_compiled_class with invalid class hash failed as expected: {}",
                     e
                 );
@@ -586,7 +588,7 @@ mod tests {
             }
         }
 
-        println!("✅ Error handling works correctly with invalid values");
+        info!("✅ Error handling works correctly with invalid values");
     }
 
     #[test]
@@ -594,24 +596,24 @@ mod tests {
         let (contract_address, storage_key, class_hash, _) = create_test_values();
 
         // Test that our test values are correctly typed
-        println!("Testing type conversions for test values:");
+        info!("Testing type conversions for test values:");
 
         // Test ContractAddress
-        println!("✅ ContractAddress: {:?}", contract_address);
+        info!("✅ ContractAddress: {:?}", contract_address);
         assert_eq!(
             std::any::type_name_of_val(&contract_address),
             "starknet_api::core::ContractAddress"
         );
 
         // Test StorageKey
-        println!("✅ StorageKey: {:?}", storage_key);
+        info!("✅ StorageKey: {:?}", storage_key);
         assert_eq!(
             std::any::type_name_of_val(&storage_key),
             "starknet_api::state::StorageKey"
         );
 
         // Test ClassHash
-        println!("✅ ClassHash: {:?}", class_hash);
+        info!("✅ ClassHash: {:?}", class_hash);
         assert_eq!(
             std::any::type_name_of_val(&class_hash),
             "starknet_api::core::ClassHash"
@@ -619,9 +621,9 @@ mod tests {
 
         // Test BlockId - use the actual type name we discovered
         let block_id = BlockId::Number(12345);
-        println!("✅ BlockId: {:?}", block_id);
+        info!("✅ BlockId: {:?}", block_id);
         let actual_type = std::any::type_name_of_val(&block_id);
-        println!("   Actual type: {}", actual_type);
+        info!("   Actual type: {}", actual_type);
         // The type can be either depending on which crate is being used
         assert!(
             actual_type == "starknet::core::types::BlockId"
@@ -632,7 +634,7 @@ mod tests {
     #[test]
     fn test_helper_functions() {
         // Test error conversion helpers
-        println!("Testing helper functions:");
+        info!("Testing helper functions:");
 
         // Test to_state_err
         let test_error = "Test error message";
@@ -640,7 +642,7 @@ mod tests {
         match state_error {
             StateError::StateReadError(msg) => {
                 assert_eq!(msg, "Test error message");
-                println!("✅ to_state_err works correctly");
+                info!("✅ to_state_err works correctly");
             }
             _ => panic!("❌ Wrong error type returned"),
         }
@@ -651,7 +653,7 @@ mod tests {
         match converted_error {
             StateError::StateReadError(msg) => {
                 assert!(msg.contains("rate") || msg.contains("Rate") || msg.contains("limited"));
-                println!("✅ provider_error_to_state_error works correctly");
+                info!("✅ provider_error_to_state_error works correctly");
             }
             _ => panic!("❌ Wrong error type returned"),
         }
@@ -688,43 +690,43 @@ mod tests {
         ];
 
         for (name, class_hash) in test_class_hashes {
-            println!("\n🔍 Testing class hash {}: {:?}", name, class_hash);
+            info!("🔍 Testing class hash {}: {:?}", name, class_hash);
 
             match state_reader.get_compiled_class_async(class_hash).await {
                 Ok(runnable_class) => {
-                    println!("✅ {} succeeded!", name);
+                    info!("✅ {} succeeded!", name);
                     match runnable_class {
                         RunnableCompiledClass::V0(_) => {
-                            println!("  → Got RunnableCompiledClass::V0 (Legacy contract)");
+                            info!("  → Got RunnableCompiledClass::V0 (Legacy contract)");
                         }
                         RunnableCompiledClass::V1(_) => {
-                            println!("  → Got RunnableCompiledClass::V1 (Sierra contract)");
+                            info!("  → Got RunnableCompiledClass::V1 (Sierra contract)");
                         }
                         #[cfg(feature = "cairo_native")]
                         RunnableCompiledClass::V1Native(_) => {
-                            println!("  → Got RunnableCompiledClass::V1Native (Native contract)");
+                            info!("  → Got RunnableCompiledClass::V1Native (Native contract)");
                         }
                     }
                     // If any succeed, we know our implementation works!
                     return;
                 }
                 Err(e) => {
-                    println!("⚠️  {} failed: {}", name, e);
+                    warn!("⚠️  {} failed: {}", name, e);
                     if e.to_string().contains("UndeclaredClassHash")
                         || e.to_string().contains("not found")
                     {
-                        println!("   (This is expected - class hash doesn't exist)");
+                        info!("   (This is expected - class hash doesn't exist)");
                     } else {
-                        println!("   (This might be a parsing/conversion issue)");
+                        info!("   (This might be a parsing/conversion issue)");
                     }
                 }
             }
         }
 
-        println!("\n📝 All tested class hashes had issues - this might indicate:");
-        println!("   1. The specific contract format isn't supported yet");
-        println!("   2. The from_bytes conversion needs adjustment");
-        println!("   3. The class hashes we tested don't exist at this block");
-        println!("\n✅ But the RPC integration and basic structure work perfectly!");
+        info!("📝 All tested class hashes had issues - this might indicate:");
+        info!("   1. The specific contract format isn't supported yet");
+        info!("   2. The from_bytes conversion needs adjustment");
+        info!("   3. The class hashes we tested don't exist at this block");
+        info!("✅ But the RPC integration and basic structure work perfectly!");
     }
 }

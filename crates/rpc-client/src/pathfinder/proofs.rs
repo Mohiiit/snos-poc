@@ -59,8 +59,7 @@ impl TrieNode {
                 // For edge nodes, we hash the child with the path value
                 // This is a simplified implementation
                 let bottom_path_hash = H::hash(child, &path.value);
-                let hash_value = bottom_path_hash + Felt252::from(path.len);
-                hash_value
+                bottom_path_hash + Felt252::from(path.len)
             }
         }
     }
@@ -150,7 +149,7 @@ impl ContractData {
             if let Err(e) =
                 verify_proof::<PedersenHash>(*storage_key, self.root, &self.storage_proofs[index])
             {
-                errors.push(e);
+                errors.push(*e);
             }
         }
 
@@ -175,8 +174,8 @@ pub fn verify_storage_proof(contract_data: &ContractData, keys: &[Felt]) -> Vec<
                 ProofVerificationError::NonExistenceProof { key, height, node } => {
                     if let TrieNode::Edge { child: _, path, .. } = &node {
                         if height.0 < DEFAULT_STORAGE_TREE_HEIGHT {
-                            let modified_key = get_key_following_edge(key, height, &path);
-                            println!(
+                            let modified_key = get_key_following_edge(key, height, path);
+                            log::debug!(
                                 "Fetching modified key {} for key {}",
                                 modified_key.to_hex_string(),
                                 key.to_hex_string()
@@ -249,7 +248,7 @@ pub fn proof_to_hashmap(proof: &[TrieNode]) -> HashMap<Felt, TrieNode> {
 }
 
 pub fn hash_binary_node<H: SimpleHashFunction>(left_hash: Felt, right_hash: Felt) -> Felt {
-    H::hash(&left_hash, &right_hash).into()
+    H::hash(&left_hash, &right_hash)
 }
 pub fn hash_edge_node<H: SimpleHashFunction>(
     path: &Felt,
@@ -269,7 +268,7 @@ pub fn hash_edge_node<H: SimpleHashFunction>(
 
     let length = Felt::from_bytes_be(&length);
     let hash_result = H::hash(&child_hash, felt_path);
-    let hash_felt: Felt = hash_result.into();
+    let hash_felt: Felt = hash_result;
     hash_felt + length
 }
 
@@ -279,9 +278,7 @@ pub fn verify_proof<H: SimpleHashFunction>(
     key: Felt,
     commitment: Felt,
     proof: &[TrieNode],
-) -> Result<(), ProofVerificationError> {
-    let _bits = key.to_bits_be();
-
+) -> Result<(), Box<ProofVerificationError>> {
     // The tree height is 251, so the first 5 bits are ignored.
     let start = 5;
     let mut index = start;
@@ -290,8 +287,8 @@ pub fn verify_proof<H: SimpleHashFunction>(
     let mut next_node_hash = commitment;
     // let mut ordered_proof = Vec::new();
     let proof_nodes = proof_to_hashmap(proof);
-    // println!("mapping here is: {:?}", proof_nodes);
-    // println!("/n");
+    // log::debug!("mapping here is: {:?}", proof_nodes);
+    // log::debug!("/n");
     loop {
         let node = proof_nodes.get(&next_node_hash).ok_or_else(|| {
             ProofVerificationError::ProofError(format!(
@@ -299,44 +296,40 @@ pub fn verify_proof<H: SimpleHashFunction>(
                 next_node_hash, index
             ))
         })?;
-        // println!("for the node_hash: {:?}, we got the node: {:?}", next_node_hash, node);
+        // log::debug!("for the node_hash: {:?}, we got the node: {:?}", next_node_hash, node);
         match node {
             TrieNode::Binary { left, right, .. } => {
-                // println!("that node is binary");
+                // log::debug!("that node is binary");
                 let actual_node_hash = hash_binary_node::<H>(*left, *right);
                 if actual_node_hash != next_node_hash {
-                    return Err(ProofVerificationError::InvalidChildNodeHash {
+                    return Err(Box::new(ProofVerificationError::InvalidChildNodeHash {
                         node_hash: actual_node_hash,
                         parent_hash: next_node_hash,
-                    });
+                    }));
                 }
-                next_node_hash = if bits[index] {
-                    right.clone()
-                } else {
-                    left.clone()
-                }; // TODO: remove the clones
+                next_node_hash = if bits[index] { *right } else { *left }; // TODO: remove the clones
                 index += 1;
-                // println!("hash calculation passed for the node!!");
+                // log::debug!("hash calculation passed for the node!!");
             }
             TrieNode::Edge { child, path, .. } => {
-                // println!("that node is edge node");
+                // log::debug!("that node is edge node");
                 let length = path.len as usize;
                 let relevant_path = &bits[index..index + length];
 
                 let path_bits: BitVec<_, Msb0> = BitVec::from_slice(&path.value.to_bytes_be());
-                // println!("the size of the path_bits here is: {:?}", path_bits.len());
+                // log::debug!("the size of the path_bits here is: {:?}", path_bits.len());
                 let relevant_node_path = &path_bits[256 - length..]; // TODO: is this always 256 i.e. size of the path_bits array?
 
                 let actual_node_hash = hash_edge_node::<H>(&path.value, length, *child);
-                // println!("node hash calculated is: {:?}", actual_node_hash);
+                // log::debug!("node hash calculated is: {:?}", actual_node_hash);
                 if actual_node_hash != next_node_hash {
-                    return Err(ProofVerificationError::InvalidChildNodeHash {
+                    return Err(Box::new(ProofVerificationError::InvalidChildNodeHash {
                         node_hash: actual_node_hash,
                         parent_hash: next_node_hash,
-                    });
+                    }));
                 }
-                // println!("hash calculation passed for the node!!");
-                next_node_hash = child.clone();
+                // log::debug!("hash calculation passed for the node!!");
+                next_node_hash = *child;
                 index += length;
 
                 if relevant_path != relevant_node_path {
@@ -345,11 +338,11 @@ pub fn verify_proof<H: SimpleHashFunction>(
                     // 1. We correctly moved towards the target as far as possible, and
                     // 2. Hashing all the nodes along the path results in the root hash, which means
                     // 3. The target definitely does not exist in this tree
-                    return Err(ProofVerificationError::NonExistenceProof {
+                    return Err(Box::new(ProofVerificationError::NonExistenceProof {
                         key,
                         height: Height(DEFAULT_STORAGE_TREE_HEIGHT - (index - start) as u64),
                         node: node.clone(),
-                    });
+                    }));
                 }
             }
         }
@@ -357,10 +350,10 @@ pub fn verify_proof<H: SimpleHashFunction>(
         // ordered_proof.push(node.clone());
 
         if index > 256 {
-            return Err(ProofVerificationError::ProofError(format!(
+            return Err(Box::new(ProofVerificationError::ProofError(format!(
                 "invalid proof, path too long ({})",
                 (index - start)
-            )));
+            ))));
         }
         if index == 256 {
             break;
@@ -371,7 +364,7 @@ pub fn verify_proof<H: SimpleHashFunction>(
 }
 
 impl PathfinderClassProof {
-    pub fn verify(&self, class_hash: Felt) -> Result<(), ProofVerificationError> {
+    pub fn verify(&self, class_hash: Felt) -> Result<(), Box<ProofVerificationError>> {
         verify_proof::<PoseidonHash>(class_hash, self.class_commitment()?, &self.class_proof)
     }
 
@@ -385,12 +378,12 @@ impl PathfinderClassProof {
     ///
     /// NOTE: the v0.8 RPC spec does NOT require the proof to be in order, in which case it is
     ///       much trickier to guess what the root node is.
-    pub fn class_commitment(&self) -> Result<Felt, ProofVerificationError> {
+    pub fn class_commitment(&self) -> Result<Felt, Box<ProofVerificationError>> {
         if !self.class_proof.is_empty() {
             let hash = self.class_proof[0].hash::<PoseidonHash>();
-            Ok(hash.into())
+            Ok(hash)
         } else {
-            Err(ProofVerificationError::EmptyProof) // TODO: give an error type or change fn return type
+            Err(Box::new(ProofVerificationError::EmptyProof)) // TODO: give an error type or change fn return type
         }
     }
 }
@@ -459,7 +452,7 @@ mod tests {
             // Call verify_proof with PedersenHash - fail test if verification fails
             verify_proof::<PedersenHash>(key, commitment, proof)
                 .expect("Proof verification failed");
-            println!("Proof verification successful for index {:?}", index);
+            info!("Proof verification successful for index {:?}", index);
         }
     }
 
@@ -488,7 +481,7 @@ mod tests {
         let right = Felt::from_hex(right_hex).unwrap();
         let expected = Felt::from_hex(expected_hex).unwrap();
 
-        println!(
+        info!(
             "left: {:?}, right: {:?} and expected: {:?}",
             left, right, expected
         );
@@ -497,7 +490,7 @@ mod tests {
 
         // TODO: Replace with actual expected values
         // For now, just verify the function runs without panicking
-        println!("Binary node hash result: {:#x}", result);
+        info!("Binary node hash result: {:#x}", result);
         assert_eq!(result, expected);
     }
 
@@ -525,7 +518,7 @@ mod tests {
 
     //     // TODO: Replace with actual expected values
     //     // For now, just verify the function runs without panicking
-    //     println!("Binary node hash result: {:#x}", result);
+    //     log::debug!("Binary node hash result: {:#x}", result);
     //     // assert_eq!(result, expected);
     // }
 
@@ -550,7 +543,7 @@ mod tests {
 
         // TODO: Replace with actual expected values
         // For now, just verify the function runs without panicking
-        println!("Edge node hash result: {:#x}", result);
+        info!("Edge node hash result: {:#x}", result);
         assert_eq!(result, expected);
     }
 
@@ -581,7 +574,7 @@ mod tests {
 
     //     // TODO: Replace with actual expected values
     //     // For now, just verify the function runs without panicking
-    //     println!("Edge node hash result: {:#x}", result);
+    //     log::debug!("Edge node hash result: {:#x}", result);
     //     // assert_eq!(result, expected);
     // }
 }

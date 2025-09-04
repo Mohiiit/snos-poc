@@ -10,7 +10,7 @@ use blockifier::test_utils::maybe_dummy_block_hash_and_number;
 use blockifier::transaction::objects::TransactionExecutionInfo;
 use cairo_lang_starknet_classes::casm_contract_class::CasmContractClass;
 use cairo_vm::Felt252;
-use rpc_client::pathfinder::proofs::{PathfinderProof, PedersenHash};
+use rpc_client::pathfinder::proofs::PathfinderProof;
 use rpc_client::state_reader::AsyncRpcStateReader;
 use rpc_client::RpcClient;
 use serde::Serialize;
@@ -48,6 +48,7 @@ use std::path::Path;
 /// let traces = get_transaction_traces();
 /// write_serializable_to_file(&traces, "debug/traces.json", None)?;
 /// ```
+#[allow(dead_code)]
 pub fn write_serializable_to_file<T>(
     object: &T,
     file_path: &str,
@@ -72,18 +73,13 @@ where
             let json_string = serde_json::to_string(object)?;
             file.write_all(json_string.as_bytes())?;
         }
-        #[cfg(feature = "yaml")]
-        "yaml" => {
-            let yaml_string = serde_yaml::to_string(object)?;
-            file.write_all(yaml_string.as_bytes())?;
-        }
         _ => {
             return Err(format!("Unsupported format: {}", format.unwrap_or("json")).into());
         }
     }
 
     file.flush()?;
-    println!("Successfully wrote serialized data to: {}", file_path);
+    log::debug!("Successfully wrote serialized data to: {}", file_path);
     Ok(())
 }
 
@@ -172,7 +168,7 @@ fn populate_alias_contract_keys(
             .or_default()
             .extend(alias_keys);
 
-        println!(
+        log::debug!(
             "Added {} keys to alias contract (0x2) for storage mapping",
             accessed_keys_by_address
                 .get(&alias_contract_address)
@@ -194,14 +190,14 @@ pub async fn collect_single_block_info(
     HashMap<ContractAddress, HashSet<StorageKey>>,
     Option<BlockId>,
 ) {
-    println!("Starting block info collection for block {}", block_number);
+    log::debug!("Starting block info collection for block {}", block_number);
     let block_id = BlockId::Number(block_number);
     let previous_block_id = if block_number == 0 {
         None
     } else {
         Some(BlockId::Number(block_number - 1))
     };
-    println!(
+    log::debug!(
         "Block IDs configured: current={}, previous={:?}",
         block_number,
         previous_block_id
@@ -210,14 +206,14 @@ pub async fn collect_single_block_info(
     );
 
     // Step 1: build the block context
-    println!("Getting chain ID");
+    log::debug!("Getting chain ID");
     let res = rpc_client.starknet_rpc().chain_id().await;
-    println!("Chain ID response: {:?}", res);
+    log::debug!("Chain ID response: {:?}", res);
     let chain_id = chain_id_from_felt(res.expect("issue here"));
-    println!("Provider's chain_id: {}", chain_id);
-    println!("Chain ID retrieved: {}", chain_id);
+    log::debug!("Provider's chain_id: {}", chain_id);
+    log::debug!("Chain ID retrieved: {}", chain_id);
 
-    println!("Fetching Step 2: Fetching block with transactions...");
+    log::debug!("Fetching Step 2: Fetching block with transactions...");
     let block_with_txs = match rpc_client
         .starknet_rpc()
         .get_block_with_txs(block_id)
@@ -229,16 +225,16 @@ pub async fn collect_single_block_info(
             panic!("Block is still pending!");
         }
     };
-    println!(
+    log::debug!(
         "Successfully Block with {} transactions fetched",
         block_with_txs.transactions.len()
     );
 
     let starknet_version = StarknetVersion::V0_14_0; // TODO: get it from the txns itself
-    println!("Starknet version: {:?}", starknet_version);
-    println!(" Starknet version set to: {:?}", starknet_version);
+    log::debug!("Starknet version: {:?}", starknet_version);
+    log::debug!(" Starknet version set to: {:?}", starknet_version);
 
-    println!("  Step 3: Fetching previous block...");
+    log::debug!("  Step 3: Fetching previous block...");
     let previous_block = match previous_block_id {
         Some(previous_block_id) => match rpc_client
             .starknet_rpc()
@@ -257,11 +253,7 @@ pub async fn collect_single_block_info(
     // We only need to get the older block number and hash. No need to fetch all the txs
     // This is a workaorund to catch the case where the block number is less than the buffer and still preserve the check
     // The OS will also handle the case where the block number is less than the buffer.
-    let older_block_number = if block_number <= STORED_BLOCK_HASH_BUFFER {
-        0
-    } else {
-        block_number - STORED_BLOCK_HASH_BUFFER
-    };
+    let older_block_number = block_number.saturating_sub(STORED_BLOCK_HASH_BUFFER);
 
     let older_block = match rpc_client
         .starknet_rpc()
@@ -277,45 +269,38 @@ pub async fn collect_single_block_info(
     let old_block_number = Felt::from(older_block.block_number);
     let old_block_hash = older_block.block_hash;
 
-    println!(
+    log::debug!(
         "previous block: {:?}, older block: {:?}",
-        previous_block, older_block
+        previous_block,
+        older_block
     );
-    println!("Successfully Previous and older blocks fetched");
+    log::debug!("Successfully Previous and older blocks fetched");
 
-    println!("  Step 4: Building block context...");
+    log::debug!("  Step 4: Building block context...");
     let block_context = build_block_context(chain_id.clone(), &block_with_txs, starknet_version)
         .expect("issue while building the context");
-    println!("Successfully Block context built successfully");
+    log::info!("Successfully Block context built successfully");
 
-    println!(" Step 5: Getting transaction traces...");
+    log::debug!(" Step 5: Getting transaction traces...");
     let traces = rpc_client
         .starknet_rpc()
         .trace_block_transactions(block_id)
         .await
         .expect("Failed to get block tx traces");
-    println!("Successfully Got {} transaction traces", traces.len());
-    // println!("and the traces are: {:?}", traces);
-    write_serializable_to_file(
-        &traces,
-        &format!("debug/pathfinder_new_{}_traces.json", block_number),
-        None,
-    )
-    .expect("Failed to write traces to file");
-    // panic!("for now");
+    log::debug!("Successfully Got {} transaction traces", traces.len());
 
     // let file_path = "debug/blast_1309265.json";
-    // println!("Reading traces from file: {}", file_path);
+    // log::debug!("Reading traces from file: {}", file_path);
     // let file_content = std::fs::read_to_string(file_path)
     //         .expect(&format!("Failed to read traces file: {}", file_path));
     // let traces: Vec<TransactionTraceWithHash> = serde_json::from_str(&file_content)
     //     .expect(&format!("Failed to parse traces JSON from file: {}", file_path));
 
-    // println!("Successfully Read {} traces from file", traces.len());
+    // log::debug!("Successfully Read {} traces from file", traces.len());
 
     // Extract other contracts used in our block from the block trace
     // We need this to get all the class hashes used and correctly feed address_to_class_hash
-    println!(" Step 6: Extracting accessed contracts and classes...");
+    log::debug!(" Step 6: Extracting accessed contracts and classes...");
     let (accessed_addresses_felt, accessed_classes_felt) =
         get_subcalled_contracts_from_tx_traces(&traces);
 
@@ -325,20 +310,22 @@ pub async fn collect_single_block_info(
         .map(|felt| ContractAddress::try_from(*felt).expect("Invalid contract address"))
         .collect();
 
-    let accessed_classes: HashSet<ClassHash> = accessed_classes_felt
+    let mut accessed_classes: HashSet<ClassHash> = accessed_classes_felt
         .iter()
-        .map(|felt| ClassHash((*felt).into()))
+        .map(|felt| ClassHash(*felt))
         .collect();
 
-    println!(
+    // log::debug!(">>>> classes from the traces are: {:?}", accessed_classes);
+    // panic!("temp");
+    log::debug!(
         "Successfully Found {} accessed addresses and {} accessed classes",
         accessed_addresses.len(),
         accessed_classes.len()
     );
 
-    println!("the addressea are: {:?}", accessed_addresses);
-    println!("the classes are: {:?}", accessed_classes);
-    println!(" Step 7: Getting formatted state update...");
+    log::debug!("the addressea are: {:?}", accessed_addresses);
+    log::debug!("the classes are: {:?}", accessed_classes);
+    log::debug!(" Step 7: Getting formatted state update...");
     let processed_state_update = get_formatted_state_update(
         &rpc_client,
         previous_block_id,
@@ -348,9 +335,10 @@ pub async fn collect_single_block_info(
     )
     .await
     .expect("issue while calling formatted state update");
-    // println!("formatted state update is: {:?}", processed_state_update);
-    println!("Successfully State update processed successfully");
-    println!(" Step 8: Converting transactions to blockifier format...");
+    // panic!("time out");
+    // log::debug!("formatted state update is: {:?}", processed_state_update);
+    log::info!("Successfully State update processed successfully");
+    log::debug!("Converting transactions to blockifier format...");
     let mut txs = Vec::new();
     for (i, (tx, trace)) in block_with_txs
         .transactions
@@ -370,14 +358,14 @@ pub async fn collect_single_block_info(
         .expect("core to blockifier txn failed");
         txs.push(transaction);
         if (i + 1) % 10 == 0 || i == block_with_txs.transactions.len() - 1 {
-            println!(
+            log::info!(
                 "  📝 Converted {}/{} transactions",
                 i + 1,
                 block_with_txs.transactions.len()
             );
         }
     }
-    println!("Successfully All transactions converted to blockifier format");
+    log::info!("Successfully All transactions converted to blockifier format");
 
     let blockifier_txns: Vec<_> = txs
         .iter()
@@ -388,9 +376,9 @@ pub async fn collect_single_block_info(
         .map(|txn_result| txn_result.starknet_api_tx.clone())
         .collect();
 
-    let block_number_hash_pair = maybe_dummy_block_hash_and_number(BlockNumber(block_number));
+    let _block_number_hash_pair = maybe_dummy_block_hash_and_number(BlockNumber(block_number));
 
-    println!(" Step 9: Creating transaction executor...");
+    log::debug!(" Step 9: Creating transaction executor...");
     let config = TransactionExecutorConfig::default();
     let blockifier_state_reader = AsyncRpcStateReader::new(
         rpc_client.clone(),
@@ -409,19 +397,16 @@ pub async fn collect_single_block_info(
         block_context.clone(),
         config,
     );
-    println!("Successfully Transaction executor created");
+    log::debug!("Successfully Transaction executor created");
 
-    println!(
-        " Step 10: Executing {} transactions...",
-        blockifier_txns.len()
-    );
+    log::debug!("Executing {} transactions...", blockifier_txns.len());
     let execution_deadline = None;
     let execution_outputs: Vec<_> = tmp_executor
         .execute_txs(&blockifier_txns, execution_deadline)
         .into_iter()
         .collect::<Result<_, TransactionExecutorError>>()
         .expect("Unexpected error during execution.");
-    println!("Successfully All transactions executed successfully");
+    log::info!("Successfully All transactions executed");
 
     let txn_execution_infos: Vec<TransactionExecutionInfo> = execution_outputs
         .into_iter()
@@ -431,7 +416,7 @@ pub async fn collect_single_block_info(
     // write_serializable_to_file(&txn_execution_infos, &format!("debug/txn_execution_info_{}.json", block_number), None).expect("Failed to write traces to file");
 
     // panic!("for now");
-    let mut central_txn_execution_infos: Vec<CentralTransactionExecutionInfo> = txn_execution_infos
+    let central_txn_execution_infos: Vec<CentralTransactionExecutionInfo> = txn_execution_infos
         .clone()
         .into_iter()
         .map(|execution_info| execution_info.clone().into())
@@ -447,10 +432,10 @@ pub async fn collect_single_block_info(
     // central_txn_execution_infos[0].actual_fee  = Fee(central_txn_execution_infos[0].actual_fee.0 - 644127000000000);
     // panic!("temp");
 
-    println!("  Step 11: Getting accessed keys...");
+    log::debug!("  Step 11: Getting accessed keys...");
     let mut accessed_keys_by_address =
         get_accessed_keys_with_block_hash(&txn_execution_infos, old_block_number);
-    println!(
+    log::debug!(
         "Successfully Got accessed keys for {} contracts",
         accessed_keys_by_address.len()
     );
@@ -462,13 +447,13 @@ pub async fn collect_single_block_info(
         &mut accessed_keys_by_address,
     );
 
-    println!("  Step 11b: Fetching storage proofs...");
+    log::debug!("  Step 11b: Fetching storage proofs...");
     let storage_proofs = get_storage_proofs(&rpc_client, block_number, &accessed_keys_by_address)
         .await
         .expect("Failed to fetch storage proofs");
-    println!("Successfully Got {} storage proofs", storage_proofs.len());
+    log::info!("Successfully Got {} storage proofs", storage_proofs.len());
 
-    println!(" Step 12: Fetching previous storage proofs...");
+    log::debug!(" Step 12: Fetching previous storage proofs...");
     // TODO: add these keys to the accessed keys as well
     let previous_storage_proofs = match previous_block_id {
         Some(BlockId::Number(previous_block_id)) => {
@@ -495,12 +480,12 @@ pub async fn collect_single_block_info(
             map
         }
     };
-    println!(
+    log::debug!(
         "Successfully Got {} previous storage proofs",
         previous_storage_proofs.len()
     );
 
-    println!(" Step 13: Processing contract storage commitments...");
+    log::debug!(" Step 13: Processing contract storage commitments...");
     let mut contract_address_to_class_hash = HashMap::new();
     let mut address_to_storage_commitment_info: HashMap<ContractAddress, CommitmentInfo> =
         HashMap::new();
@@ -510,39 +495,36 @@ pub async fn collect_single_block_info(
         let previous_storage_proof = previous_storage_proofs
             .get(&contract_address)
             .expect("failed to find previous storage proof");
-        let previous_contract_commitment_facts = format_commitment_facts::<PedersenHash>(
+        let previous_contract_commitment_facts = format_commitment_facts(
             &previous_storage_proof
                 .clone()
                 .contract_data
                 .unwrap()
                 .storage_proofs,
         );
-        let current_contract_commitment_facts = format_commitment_facts::<PedersenHash>(
-            &storage_proof.clone().contract_data.unwrap().storage_proofs,
-        );
-        // println!("contract_address: {:?}, previous storage proof is: {:?}", contract_address, previous_contract_commitment_facts);
-        // println!("contract_address: {:?}, current storage proof is: {:?}", contract_address, current_contract_commitment_facts);
+        let current_contract_commitment_facts =
+            format_commitment_facts(&storage_proof.clone().contract_data.unwrap().storage_proofs);
+        // log::debug!("contract_address: {:?}, previous storage proof is: {:?}", contract_address, previous_contract_commitment_facts);
+        // log::debug!("contract_address: {:?}, current storage proof is: {:?}", contract_address, current_contract_commitment_facts);
         let global_contract_commitment_facts: HashMap<HashOutput, Vec<Felt252>> =
             previous_contract_commitment_facts
                 .into_iter()
                 .chain(current_contract_commitment_facts)
-                .map(|(key, value)| (HashOutput(key.into()), value))
+                .map(|(key, value)| (HashOutput(key), value))
                 .collect();
 
-        // println!("the global contract commitment facts turns out to be: {:?}", global_contract_commitment_facts);
+        // log::debug!("the global contract commitment facts turns out to be: {:?}", global_contract_commitment_facts);
         let previous_contract_storage_root: Felt = previous_storage_proof
             .contract_data
             .as_ref()
             .map(|contract_data| contract_data.root)
-            .unwrap_or(Felt::ZERO)
-            .into();
+            .unwrap_or(Felt::ZERO);
 
         let current_contract_storage_root: Felt = storage_proof
             .contract_data
             .as_ref()
             .map(|contract_data| contract_data.root)
-            .unwrap_or(Felt::ZERO)
-            .into();
+            .unwrap_or(Felt::ZERO);
 
         let contract_state_commitment_info = CommitmentInfo {
             previous_root: HashOutput(previous_contract_storage_root),
@@ -556,20 +538,21 @@ pub async fn collect_single_block_info(
             contract_state_commitment_info,
         );
 
-        println!(
+        log::debug!(
             "Storage root 0x{:x} for contract 0x{:x} and same root in HashOutput would be: {:?}",
             Into::<Felt252>::into(previous_contract_storage_root),
             contract_address,
             HashOutput(previous_contract_storage_root)
         );
-        println!(
+        log::debug!(
             "the contract address: {:?} and the block-id: {:?}",
-            contract_address, block_id
+            contract_address,
+            block_id
         );
 
         // TODO: Check this special case handling once again - why does contract address 0x1 need class hash 0x0?
         let class_hash = if contract_address == Felt::ONE || contract_address == Felt::TWO {
-            println!("🔧 Special case: Contract address 0x1 detected, setting class hash to 0x0 without RPC call");
+            log::debug!("🔧 Special case: Contract address 0x1 detected, setting class hash to 0x0 without RPC call");
             Felt::ZERO
         } else {
             rpc_client
@@ -581,7 +564,10 @@ pub async fn collect_single_block_info(
 
         contract_address_to_class_hash.insert(contract_address, class_hash);
     }
-    // println!("Successfully Processed {} contract storage commitments", address_to_storage_commitment_info.len());
+    log::info!(
+        "Successfully Processed {} contract storage commitments",
+        address_to_storage_commitment_info.len()
+    );
 
     let compiled_classes = processed_state_update.compiled_classes;
     let deprecated_compiled_classes = processed_state_update.deprecated_compiled_classes;
@@ -598,18 +584,22 @@ pub async fn collect_single_block_info(
         processed_state_update.class_hash_to_compiled_class_hash;
     // query storage proofs for each accessed contract
     let class_hashes: Vec<&Felt252> = class_hash_to_compiled_class_hash.keys().collect();
-    println!(
-        "  Step 14: Fetching class proofs for {} class hashes...",
-        class_hashes.len()
+    log::debug!(
+        "  Step 14: Fetching class proofs for {} class hashes... and the class hashs are: {:?}",
+        class_hashes.len(),
+        class_hashes
     );
     // TODO: we fetch proofs here for block-1, but we probably also need to fetch at the current
     //       block, likely for contracts that are deployed in this block
     let class_proofs = get_class_proofs(&rpc_client, block_number, &class_hashes[..])
         .await
         .expect("Failed to fetch class proofs");
-    println!("Successfully Got {} class proofs", class_proofs.len());
+    log::debug!("Successfully Got {} class proofs", class_proofs.len());
 
-    println!(" Step 15: Fetching previous class proofs...");
+    // before fetching the class proof at previous block, we can remove the ones which are declared in the new one
+    // class_hashes.retain(|&x| !declared_class_hash_component_hashes.contains_key(&ClassHash(*x)));
+    accessed_classes.extend(declared_class_hash_component_hashes.keys());
+    log::debug!(" Step 15: Fetching previous class proofs...");
     let previous_class_proofs = match previous_block_id {
         Some(BlockId::Number(previous_block_id)) => {
             get_class_proofs(&rpc_client, previous_block_id, &class_hashes[..])
@@ -618,10 +608,11 @@ pub async fn collect_single_block_info(
         }
         _ => Default::default(),
     };
-    println!(
+    log::debug!(
         "Successfully Got {} previous class proofs",
         previous_class_proofs.len()
     );
+    log::info!("Successfully got class proofs");
 
     // We can extract data from any storage proof, use the one of the block hash contract
     let block_hash_storage_proof = storage_proofs
@@ -650,14 +641,12 @@ pub async fn collect_single_block_info(
         .values()
         .map(|proof| proof.contract_proof.clone())
         .collect();
-    let previous_state_commitment_facts =
-        format_commitment_facts::<PedersenHash>(&previous_contract_proofs);
+    let previous_state_commitment_facts = format_commitment_facts(&previous_contract_proofs);
     let current_contract_proofs: Vec<_> = storage_proofs
         .values()
         .map(|proof| proof.contract_proof.clone())
         .collect();
-    let current_state_commitment_facts =
-        format_commitment_facts::<PedersenHash>(&current_contract_proofs);
+    let current_state_commitment_facts = format_commitment_facts(&current_contract_proofs);
 
     let global_state_commitment_facts: HashMap<_, _> = previous_state_commitment_facts
         .into_iter()
@@ -671,46 +660,55 @@ pub async fn collect_single_block_info(
         tree_height: SubTreeHeight(251),
         commitment_facts: global_state_commitment_facts,
     };
+    log::info!("Successfully State commitment computed");
+    log::debug!(
+        "Contract state commitment info is: {:?}",
+        contract_state_commitment_info
+    );
 
-    println!(" Step 16: Computing class commitments...");
+    log::debug!(" Step 16: Computing class commitments...");
     let contract_class_commitment_info = compute_class_commitment(
         &previous_class_proofs,
         &class_proofs,
         previous_root,
         updated_root,
     );
-    println!("Successfully Class commitment computed");
+    log::info!("Successfully Class commitment computed");
+    log::debug!(
+        "Contract class commitment info is: {:?}",
+        contract_class_commitment_info
+    );
 
-    println!(" Step 17: Converting compiled classes to BTreeMap with CompiledClassHash keys...");
+    log::debug!(" Step 17: Converting compiled classes to BTreeMap with CompiledClassHash keys...");
     let mut compiled_classes_btree: BTreeMap<ClassHash, CasmContractClass> = BTreeMap::new();
 
     for (class_hash_felt, generic_class) in compiled_classes {
-        println!("class hash here is: {:?}", class_hash_felt);
+        log::debug!("class hash here is: {:?}", class_hash_felt);
         let class_hash = ClassHash(class_hash_felt);
         let cairo_lang_class = generic_class
             .get_cairo_lang_contract_class()
             .expect("Failed to get cairo-lang contract class")
             .clone();
-        println!("class hash here is: {:?}", class_hash);
+        log::debug!("class hash here is: {:?}", class_hash);
         //
         // // 1. First check the existing class_hash_to_compiled_class_hash mapping
         // let compiled_class_hash = if let Some(&existing_compiled_hash) = class_hash_to_compiled_class_hash.get(&class_hash) {
         //     mapping_hits += 1;
         //     let compiled_class_hash = CompiledClassHash(existing_compiled_hash.into());
-        //     println!("Successfully Found compiled class hash in mapping: {:?} -> {:?}", class_hash, compiled_class_hash);
+        //     log::debug!("Successfully Found compiled class hash in mapping: {:?} -> {:?}", class_hash, compiled_class_hash);
         //     compiled_class_hash
         // } else {
         //     // 2. Fallback to RPC call if not in mapping
         //     rpc_calls_made += 1;
-        //     println!("⚠️  Class hash {:?} not found in mapping, making RPC call...", class_hash);
+        //     log::debug!("⚠️  Class hash {:?} not found in mapping, making RPC call...", class_hash);
         //     let state_reader = AsyncRpcStateReader::new(rpc_client.clone(), block_id);
         //     match state_reader.get_compiled_class_hash_async(class_hash).await {
         //         Ok(compiled_hash) => {
-        //             println!("Successfully RPC call succeeded: {:?} -> {:?}", class_hash, compiled_hash);
+        //             log::debug!("Successfully RPC call succeeded: {:?} -> {:?}", class_hash, compiled_hash);
         //             compiled_hash
         //         }
         //         Err(e) => {
-        //             println!("❌ RPC call failed for class hash {:?}: {}", class_hash, e);
+        //             log::debug!("❌ RPC call failed for class hash {:?}: {}", class_hash, e);
         //             continue; // Skip this class if we can't get compiled class hash
         //         }
         //     }
@@ -720,8 +718,6 @@ pub async fn collect_single_block_info(
     }
 
     let mut deprecated_compiled_classes_btree: BTreeMap<ClassHash, ContractClass> = BTreeMap::new();
-    let mut deprecated_rpc_calls_made = 0;
-    let mut deprecated_mapping_hits = 0;
 
     for (class_hash_felt, generic_class) in deprecated_compiled_classes {
         let class_hash = ClassHash(class_hash_felt);
@@ -733,20 +729,20 @@ pub async fn collect_single_block_info(
         // let compiled_class_hash = if let Some(&existing_compiled_hash) = class_hash_to_compiled_class_hash.get(&class_hash) {
         //     deprecated_mapping_hits += 1;
         //     let compiled_class_hash = CompiledClassHash(existing_compiled_hash.into());
-        //     println!("Successfully Found deprecated compiled class hash in mapping: {:?} -> {:?}", class_hash, compiled_class_hash);
+        //     log::debug!("Successfully Found deprecated compiled class hash in mapping: {:?} -> {:?}", class_hash, compiled_class_hash);
         //     compiled_class_hash
         // } else {
         //     // 2. Fallback to RPC call if not in mapping
         //     deprecated_rpc_calls_made += 1;
-        //     println!("⚠️  Deprecated class hash {:?} not found in mapping, making RPC call...", class_hash);
+        //     log::debug!("⚠️  Deprecated class hash {:?} not found in mapping, making RPC call...", class_hash);
         //     let state_reader = AsyncRpcStateReader::new(rpc_client.clone(), block_id);
         //     match state_reader.get_compiled_class_hash_async(class_hash).await {
         //         Ok(compiled_hash) => {
-        //             println!("Successfully Deprecated RPC call succeeded: {:?} -> {:?}", class_hash, compiled_hash);
+        //             log::debug!("Successfully Deprecated RPC call succeeded: {:?} -> {:?}", class_hash, compiled_hash);
         //             compiled_hash
         //         }
         //         Err(e) => {
-        //             println!("❌ Deprecated RPC call failed for class hash {:?}: {}", class_hash, e);
+        //             log::debug!("❌ Deprecated RPC call failed for class hash {:?}: {}", class_hash, e);
         //             continue; // Skip this class if we can't get compiled class hash
         //         }
         //     }
@@ -755,17 +751,14 @@ pub async fn collect_single_block_info(
         deprecated_compiled_classes_btree.insert(class_hash, starknet_api_class);
     }
 
-    println!(
-        " Deprecated classes stats: {} mapping hits, {} RPC calls made",
-        deprecated_mapping_hits, deprecated_rpc_calls_made
-    );
-    println!(
+    log::debug!(" Deprecated classes stats: 0 mapping hits, 0 RPC calls made");
+    log::debug!(
         "Successfully Converted {} compiled classes and {} deprecated classes",
         compiled_classes_btree.len(),
         deprecated_compiled_classes_btree.len()
     );
 
-    println!(" Step 18: Building final OsBlockInput...");
+    log::debug!(" Step 18: Building final OsBlockInput...");
     let os_block_input = OsBlockInput {
         contract_state_commitment_info,
         contract_class_commitment_info,
@@ -782,7 +775,7 @@ pub async fn collect_single_block_info(
         )),
     };
 
-    println!(
+    log::debug!(
         " collect_single_block_info: Completed successfully for block {}",
         block_number
     );
