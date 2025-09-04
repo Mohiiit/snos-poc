@@ -203,7 +203,7 @@ mod tests {
 
         let serialized_class = serde_json::to_vec(&generic_class).unwrap();
         // Check that the deserialization works
-        let _deserialized_class: GenericCasmContractClass =
+        let deserialized_class: GenericCasmContractClass =
             serde_json::from_slice(&serialized_class).unwrap();
     }
 

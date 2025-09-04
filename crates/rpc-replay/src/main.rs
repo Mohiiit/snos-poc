@@ -1,9 +1,8 @@
 use std::fs;
 use std::time::Duration;
 
-use chrono::Utc;
 use clap::Parser;
-use log::{error, info, warn};
+use log::{debug, error, info, warn};
 use starknet::core::types::BlockId;
 use starknet::providers::Provider;
 use tokio::time::sleep;
@@ -12,6 +11,24 @@ use rpc_client::RpcClient;
 use snos_core::{
     generate_pie, ChainConfig, OsHintsConfiguration, PieGenerationError, PieGenerationInput,
 };
+
+// Custom error type to handle both regular errors and panics
+#[derive(Debug)]
+enum ProcessError {
+    Regular(PieGenerationError),
+    Panic(String),
+}
+
+impl std::fmt::Display for ProcessError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ProcessError::Regular(e) => write!(f, "Regular error: {}", e),
+            ProcessError::Panic(msg) => write!(f, "Panic: {}", msg),
+        }
+    }
+}
+
+impl std::error::Error for ProcessError {}
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -59,11 +76,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let block_set = [current_block];
         info!("📋 Processing block set: {:?}", block_set);
 
-        // Check if all 1 blocks exist
+        // Check if all blocks exist
         match check_blocks_exist(&rpc_client, &block_set).await {
             Ok(true) => {
-                info!(
-                    "✅ All blocks in set {:?} exist, proceeding with PIE generation",
+                debug!(
+                    "All blocks in set {:?} exist, proceeding with PIE generation",
                     block_set
                 );
 
@@ -71,16 +88,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 match process_block_set(&args, &block_set).await {
                     Ok(output_path) => {
                         info!(
-                            "🎉 Successfully generated PIE for blocks {:?} -> {}",
+                            "Successfully generated PIE for blocks {:?} -> {}",
                             block_set, output_path
                         );
-                        current_block += 1; // Move to next set of 3 blocks
+                        current_block += 1; // Move to next block
                     }
                     Err(e) => {
-                        error!(
-                            "❌ Failed to generate PIE for blocks {:?}: {}",
-                            block_set, e
-                        );
+                        error!("Failed to generate PIE for blocks {:?}: {}", block_set, e);
 
                         // Write error to file
                         let error_file =
@@ -93,15 +107,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 }
             }
             Ok(false) => {
-                info!(
-                    "⏳ Not all blocks in set {:?} exist yet, waiting {} seconds",
+                debug!(
+                    "Not all blocks in set {:?} exist yet, waiting {} seconds",
                     block_set, args.interval
                 );
                 sleep(Duration::from_secs(args.interval)).await;
             }
             Err(e) => {
                 warn!(
-                    "⚠️ Error checking blocks {:?}: {}, retrying in {} seconds",
+                    "Error checking blocks {:?}: {}, retrying in {} seconds",
                     block_set, e, args.interval
                 );
                 sleep(Duration::from_secs(args.interval)).await;
@@ -129,7 +143,7 @@ async fn check_blocks_exist(
                 // Check if it's a "block not found" error
                 let error_str = format!("{:?}", e);
                 if error_str.contains("BlockNotFound") || error_str.contains("block not found") {
-                    info!("📋 Block {} not found yet", block_num);
+                    debug!("Block {} not found yet", block_num);
                     return Ok(false);
                 } else {
                     // Other error, propagate it
@@ -142,8 +156,7 @@ async fn check_blocks_exist(
 }
 
 /// Process a set of 1 block and generate PIE
-async fn process_block_set(args: &Args, blocks: &[u64; 1]) -> Result<String, PieGenerationError> {
-    let timestamp = Utc::now().format("%Y%m%d_%H%M%S");
+async fn process_block_set(args: &Args, blocks: &[u64; 1]) -> Result<String, ProcessError> {
     let output_filename = format!("cairo_pie_blocks_{}.zip", blocks[0]);
 
     let input = PieGenerationInput {
@@ -154,19 +167,53 @@ async fn process_block_set(args: &Args, blocks: &[u64; 1]) -> Result<String, Pie
         output_path: None, // we don't want a lots of zips just yet
     };
 
-    info!("🔄 Starting PIE generation for blocks {:?}", blocks);
+    debug!("Starting PIE generation for blocks {:?}", blocks);
 
-    match generate_pie(input).await {
-        Ok(result) => {
+    // Use tokio::task::spawn_blocking to handle potential panics in async context
+    let result = tokio::task::spawn_blocking(move || {
+        // This will run in a separate thread and catch panics
+        std::panic::catch_unwind(|| {
+            // We need to block on the async function here
+            tokio::runtime::Handle::current().block_on(generate_pie(input))
+        })
+    })
+    .await;
+
+    match result {
+        Ok(Ok(Ok(output))) => {
             info!(
-                "✅ PIE generation completed for blocks {:?}",
-                result.blocks_processed
+                "PIE generation completed for blocks {:?}",
+                output.blocks_processed
             );
             Ok(output_filename)
         }
-        Err(e) => {
-            error!("❌ PIE generation failed for blocks {:?}: {}", blocks, e);
-            Err(e)
+        Ok(Ok(Err(e))) => {
+            error!("PIE generation failed for blocks {:?}: {}", blocks, e);
+            Err(ProcessError::Regular(e))
+        }
+        Ok(Err(panic_payload)) => {
+            let panic_msg = if let Some(s) = panic_payload.downcast_ref::<String>() {
+                s.clone()
+            } else if let Some(s) = panic_payload.downcast_ref::<&str>() {
+                s.to_string()
+            } else {
+                format!("Unknown panic: {:?}", panic_payload)
+            };
+
+            let error_msg = format!("Panic during PIE generation: {}", panic_msg);
+            error!(
+                "PIE generation panicked for blocks {:?}: {}",
+                blocks, error_msg
+            );
+            Err(ProcessError::Panic(error_msg))
+        }
+        Err(join_err) => {
+            let error_msg = format!("Task join error during PIE generation: {}", join_err);
+            error!(
+                "PIE generation task failed for blocks {:?}: {}",
+                blocks, error_msg
+            );
+            Err(ProcessError::Panic(error_msg))
         }
     }
 }
@@ -175,8 +222,10 @@ async fn process_block_set(args: &Args, blocks: &[u64; 1]) -> Result<String, Pie
 async fn write_error_to_file(
     file_path: &str,
     blocks: &[u64; 1],
-    error: &PieGenerationError,
+    error: &ProcessError,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    use chrono::Utc;
+
     let timestamp = Utc::now().format("%Y-%m-%d %H:%M:%S UTC");
     let error_content = format!(
         "Error Report\n\
@@ -189,6 +238,6 @@ async fn write_error_to_file(
     );
 
     fs::write(file_path, error_content)?;
-    error!("📝 Error details written to: {}", file_path);
+    error!("Error details written to: {}", file_path);
     Ok(())
 }

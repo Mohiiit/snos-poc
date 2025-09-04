@@ -1,4 +1,5 @@
 use cairo_vm::Felt252;
+use log::debug;
 use rpc_client::RpcClient;
 use starknet::core::types::SierraEntryPoint;
 use starknet::core::types::{
@@ -114,7 +115,7 @@ pub(crate) async fn get_formatted_state_update(
 
         // OS will expect a Zero in compiled_class_hash for new classes. Overwrite the needed entries.
         format_declared_classes(&state_diff, &mut class_hash_to_compiled_class_hash);
-        // println!("ch_to_cch mapping: {:?} and cc: {:?}", class_hash_to_compiled_class_hash, compiled_contract_classes);
+        // log::debug!("ch_to_cch mapping: {:?} and cc: {:?}", class_hash_to_compiled_class_hash, compiled_contract_classes);
 
         Ok(FormattedStateUpdate {
             class_hash_to_compiled_class_hash,
@@ -274,7 +275,7 @@ async fn build_compiled_class_and_maybe_update_class_hash_to_compiled_class_hash
                     StarknetError::ContractNotFound,
                 )) => {
                     // The contract was deployed in the current block, nothing to worry about
-                    println!("rpc error hence ignoring it?");
+                    debug!("Contract not found - likely deployed in current block");
                 }
                 _ => return Err(e),
             }
@@ -292,7 +293,7 @@ async fn build_compiled_class_and_maybe_update_class_hash_to_compiled_class_hash
     }
 
     for class_hash in accessed_classes {
-        println!("class hash we are checking out is: {:?}", class_hash);
+        debug!("Processing class hash: {:?}", class_hash);
         let contract_class = provider
             .starknet_rpc()
             .get_class(block_id, class_hash)
@@ -321,7 +322,7 @@ async fn build_compiled_class_and_maybe_update_class_hash_to_compiled_class_hash
         }
     }
 
-    // println!("compiled contract classes is: {:?}", compiled_contract_classes);
+    // log::debug!("compiled contract classes is: {:?}", compiled_contract_classes);
 
     Ok((
         compiled_contract_classes,
@@ -344,7 +345,7 @@ async fn add_compiled_class_from_contract_to_os_input(
         .starknet_rpc()
         .get_class_hash_at(block_id, contract_address)
         .await?;
-    println!(">>>>> class hash of certain contract is: {:?}", class_hash);
+    debug!("Class hash for contract: {:?}", class_hash);
     let contract_class = rpc_client
         .starknet_rpc()
         .get_class(block_id, class_hash)
@@ -381,12 +382,15 @@ fn add_compiled_class_to_os_input(
 
     // Remove deprecated classes from HashMap
     if matches!(&compiled_class, GenericCompiledClass::Cairo0(_)) {
-        println!(
+        log::debug!(
             "Skipping deprecated class for ch_to_cch: 0x{:x}",
             class_hash
         );
     } else {
-        println!("adding the to the mapping of class_hash_to_compiled_class_hash with ch: {:?} and cch {:?}", class_hash, compiled_class_hash);
+        debug!(
+            "Adding class hash {:?} -> compiled class hash {:?} to mapping",
+            class_hash, compiled_class_hash
+        );
         class_hash_to_compiled_class_hash.insert(class_hash, compiled_class_hash.into());
     }
 

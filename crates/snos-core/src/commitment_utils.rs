@@ -2,7 +2,8 @@ use starknet_types_core::felt::Felt;
 use std::collections::HashMap;
 
 // Import proper types from the dependencies
-use rpc_client::pathfinder::proofs::{PathfinderClassProof, PedersenHash, PoseidonHash, TrieNode};
+use log::debug;
+use rpc_client::pathfinder::proofs::{PathfinderClassProof, TrieNode};
 
 // Import CommitmentInfo from starknet_os
 use starknet_os::io::os_input::CommitmentInfo;
@@ -13,20 +14,15 @@ use starknet_patricia::patricia_merkle_tree::types::SubTreeHeight;
 // use starknet_types_core::hash::{Pedersen, Poseidon, StarkHash};
 
 // Import the trait from rpc-client
-use rpc_client::SimpleHashFunction;
 
 /// Implementation for Pedersen hash
-
 /// Port of the format_commitment_facts function from old snos
 ///
 /// This function processes trie nodes and converts them into commitment facts
 /// suitable for the OS consumption.
 ///
 /// Original location: ../snos/crates/bin/prove_block/src/reexecute.rs:125-163
-pub fn format_commitment_facts<H>(trie_nodes: &[Vec<TrieNode>]) -> HashMap<Felt, Vec<Felt>>
-where
-    H: SimpleHashFunction,
-{
+pub fn format_commitment_facts(trie_nodes: &[Vec<TrieNode>]) -> HashMap<Felt, Vec<Felt>> {
     let mut facts = HashMap::new();
 
     for nodes in trie_nodes {
@@ -62,7 +58,7 @@ where
                 }
             };
 
-            facts.insert(key.into(), fact_as_tuple);
+            facts.insert(key, fact_as_tuple);
         }
     }
 
@@ -117,9 +113,8 @@ pub fn compute_class_commitment(
         .collect();
 
     // Format commitment facts using Poseidon hash (for class commitments)
-    let previous_class_commitment_facts =
-        format_commitment_facts::<PoseidonHash>(&previous_class_proofs);
-    let current_class_commitment_facts = format_commitment_facts::<PoseidonHash>(&class_proofs);
+    let previous_class_commitment_facts = format_commitment_facts(&previous_class_proofs);
+    let current_class_commitment_facts = format_commitment_facts(&class_proofs);
 
     // Combine facts from previous and current
     let class_commitment_facts: HashMap<_, _> = previous_class_commitment_facts
@@ -127,11 +122,11 @@ pub fn compute_class_commitment(
         .chain(current_class_commitment_facts)
         .collect();
 
-    println!(
+    debug!(
         "previous class trie root: {}",
         previous_root.to_hex_string()
     );
-    println!("current class trie root: {}", updated_root.to_hex_string());
+    debug!("current class trie root: {}", updated_root.to_hex_string());
 
     // Create CommitmentInfo with proper type conversions
     CommitmentInfo {
@@ -145,40 +140,6 @@ pub fn compute_class_commitment(
     }
 }
 
-/// Helper function to create contract state commitment info from storage proofs
-///
-/// This combines the logic for creating state commitments from storage proofs
-/// Similar to the contract_state_commitment_info creation in the old prove_block function
-pub fn create_contract_state_commitment_info(
-    previous_contract_trie_root: Felt,
-    current_contract_trie_root: Felt,
-    global_state_commitment_facts: HashMap<Felt, Vec<Felt>>,
-) -> CommitmentInfo {
-    CommitmentInfo {
-        previous_root: HashOutput(previous_contract_trie_root),
-        updated_root: HashOutput(current_contract_trie_root),
-        tree_height: SubTreeHeight(251), // Direct construction of SubTreeHeight
-        commitment_facts: global_state_commitment_facts
-            .into_iter()
-            .map(|(k, v)| (HashOutput(k), v))
-            .collect(),
-    }
-}
-
-/// Helper function to format storage commitment facts using Pedersen hash
-/// This is for contract state commitments which use Pedersen hashing
-pub fn format_storage_commitment_facts(
-    storage_proofs: &[Vec<TrieNode>],
-) -> HashMap<Felt, Vec<Felt>> {
-    format_commitment_facts::<PedersenHash>(storage_proofs)
-}
-
-/// Helper function to format class commitment facts using Poseidon hash
-/// This is for class commitments which use Poseidon hashing
-pub fn format_class_commitment_facts(class_proofs: &[Vec<TrieNode>]) -> HashMap<Felt, Vec<Felt>> {
-    format_commitment_facts::<PoseidonHash>(class_proofs)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -186,7 +147,7 @@ mod tests {
     #[test]
     fn test_format_commitment_facts_empty() {
         let empty_nodes: Vec<Vec<TrieNode>> = vec![];
-        let facts = format_commitment_facts::<PedersenHash>(&empty_nodes);
+        let facts = format_commitment_facts(&empty_nodes);
         assert!(facts.is_empty());
     }
 
