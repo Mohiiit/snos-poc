@@ -349,29 +349,45 @@ impl StateReader for AsyncRpcStateReader {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use env_logger;
     use log::info;
+    use starknet_core::types::contract::legacy::LegacyContractClass;
     use starknet_types_core::felt::Felt as StarknetTypesFelt;
 
     fn create_test_rpc_client() -> RpcClient {
         // Create a test RPC client with a dummy URL
-        RpcClient::new("https://pathfinder-madara-ci.d.karnot.xyz")
+        RpcClient::new("https://pathfinder-mainnet.d.karnot.xyz")
     }
 
     fn create_test_values() -> (ContractAddress, StorageKey, ClassHash, BlockId) {
         let contract_address = ContractAddress::try_from(StarknetTypesFelt::from_hex_unchecked(
-            "0x4718f5a0fc34cc1af16a1cdee98ffb20c31f5cd61d6ab07201858f4287c938d",
+            "0x593c85fa098c9f23afe37d7fa0eccbd6adb0900ce35400d77a61dddca3552de",
         ))
         .unwrap();
         let storage_key = StorageKey::try_from(StarknetTypesFelt::from_hex_unchecked(
-            "0x3c204dd68b8e800b4f42e438d9ed4ccbba9f8e436518758cd36553715c1d6ab",
+            "0x1379ac0624b939ceb9dede92211d7db5ee174fe28be72245b0a1a2abd81c98f",
         ))
         .unwrap();
         let class_hash = ClassHash(StarknetTypesFelt::from_hex_unchecked(
-            "0x078401746828463e2c3f92ebb261fc82f7d4d4c8d9a80a356c44580dab124cb0",
+            "0x25ec026985a3bf9d0cc1fe17326b245dfdc3ff89b8fde106542a3ea56c5a918",
         ));
-        let block_id = BlockId::Number(1311717);
+        let block_id = BlockId::Number(1943728);
 
         (contract_address, storage_key, class_hash, block_id)
+    }
+
+    #[test]
+    fn test_contract_class_hash() {
+        for raw_artifact in [include_str!("../test_class.txt")] {
+            let artifact = serde_json::from_str::<LegacyContractClass>(raw_artifact).unwrap();
+            let computed_hash = artifact.class_hash().unwrap();
+
+            let expected_hash = Felt::from_hex_unchecked(
+                "0x25ec026985a3bf9d0cc1fe17326b245dfdc3ff89b8fde106542a3ea56c5a918",
+            );
+
+            assert_eq!(computed_hash, expected_hash);
+        }
     }
 
     #[test]
@@ -388,6 +404,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_real_rpc_calls() {
+        env_logger::init();
         let rpc_client = create_test_rpc_client();
         let (contract_address, storage_key, class_hash, block_id) = create_test_values();
         let state_reader = AsyncRpcStateReader::new(rpc_client, block_id);
@@ -485,16 +502,42 @@ mod tests {
                     "✅ get_compiled_class_hash_async succeeded: {:?}",
                     compiled_class_hash
                 );
+                info!("Input class_hash: {:?}", class_hash);
+                info!("Returned compiled_class_hash: {:?}", compiled_class_hash);
+
                 // Verify we got a valid CompiledClassHash value
                 assert_eq!(
                     std::any::type_name_of_val(&compiled_class_hash),
                     "starknet_api::core::CompiledClassHash"
+                );
+
+                // Compare the compiled class hash with the input class hash
+                // For now, let's just verify they're different (as compiled hash should be different from class hash)
+                // and log both values for comparison
+                if compiled_class_hash.0 == class_hash.0 {
+                    info!(
+                        "🔍 Compiled class hash equals input class hash: {:?}",
+                        compiled_class_hash.0
+                    );
+                } else {
+                    info!("🔍 Compiled class hash differs from input class hash:");
+                    info!("  Input class hash:     {:?}", class_hash.0);
+                    info!("  Compiled class hash:  {:?}", compiled_class_hash.0);
+                }
+
+                // Verify the compiled class hash is not zero (should be a valid hash)
+                assert_ne!(
+                    compiled_class_hash.0,
+                    StarknetTypesFelt::ZERO,
+                    "Compiled class hash should not be zero"
                 );
             }
             Err(e) => {
                 panic!("❌ get_compiled_class_hash_async failed: {}", e);
             }
         }
+
+        assert_eq!(1, 2);
 
         info!("🎉 ALL REAL RPC TESTS PASSED! 🎉");
         info!("✅ All type conversions work with real blockchain data");

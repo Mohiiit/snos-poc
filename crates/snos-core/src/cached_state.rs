@@ -116,8 +116,9 @@ pub async fn generate_cached_state_input(
     }
 
     info!(
-        "🔗 Retrieved compiled class hashes for {} classes",
-        class_hash_to_compiled_class_hash.len()
+        "🔗 Retrieved compiled class hashes for {} classes and the mapping is: {:?}",
+        class_hash_to_compiled_class_hash.len(),
+        class_hash_to_compiled_class_hash
     );
 
     let cached_state_input = CachedStateInput {

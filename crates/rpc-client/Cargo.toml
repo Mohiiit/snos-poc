@@ -20,8 +20,6 @@ blockifier = {workspace = true}
 starknet_api = {workspace = true}
 starknet-crypto = {workspace = true}
 tokio = {workspace = true}
-pathfinder-common = { workspace = true}
-pathfinder-serde = {workspace = true}
 num-bigint = {workspace = true}
 bitvec = { version = "1.0", default-features = false, features = ["std"] }
 cairo-lang-starknet-classes = { workspace = true }
@@ -29,3 +27,4 @@ cairo-lang-starknet-classes = { workspace = true }
 [dev-dependencies]
 tokio-test = "0.4"
 rstest = "0.24.0"
+env_logger = {workspace = true}

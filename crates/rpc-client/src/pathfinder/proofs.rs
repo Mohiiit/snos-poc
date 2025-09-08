@@ -400,6 +400,7 @@ pub fn read_pathfinder_proof_from_json(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use log::info;
     use rstest::rstest;
     use starknet_types_core::felt::Felt;
 
