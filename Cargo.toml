@@ -16,17 +16,17 @@ edition = "2021"
 # the above commit belongs to the 0.15.0-rc2 tag as well
 # https://github.com/starkware-libs/sequencer
 # commit below is just making a couple of things public for the usage!!!
-blockifier = { git = "https://github.com/karnotxyz/sequencer", rev="3c206344dc64b5a0f150ea94cd2623b2a9a7da63", features = ["testing"]}
-starknet_api = { git = "https://github.com/karnotxyz/sequencer", rev="3c206344dc64b5a0f150ea94cd2623b2a9a7da63", features = ["testing"]}
-starknet_os = { git = "https://github.com/karnotxyz/sequencer", rev="3c206344dc64b5a0f150ea94cd2623b2a9a7da63", features = ["testing"]}
-starknet_patricia = { git = "https://github.com/karnotxyz/sequencer", rev="3c206344dc64b5a0f150ea94cd2623b2a9a7da63", features = ["testing"]}
-shared_execution_objects = { git = "https://github.com/karnotxyz/sequencer", rev="3c206344dc64b5a0f150ea94cd2623b2a9a7da63"}
+#blockifier = { git = "https://github.com/karnotxyz/sequencer", rev="3c206344dc64b5a0f150ea94cd2623b2a9a7da63", features = ["testing"]}
+#starknet_api = { git = "https://github.com/karnotxyz/sequencer", rev="3c206344dc64b5a0f150ea94cd2623b2a9a7da63", features = ["testing"]}
+#starknet_os = { git = "https://github.com/karnotxyz/sequencer", rev="3c206344dc64b5a0f150ea94cd2623b2a9a7da63", features = ["testing"]}
+#starknet_patricia = { git = "https://github.com/karnotxyz/sequencer", rev="3c206344dc64b5a0f150ea94cd2623b2a9a7da63", features = ["testing"]}
+#shared_execution_objects = { git = "https://github.com/karnotxyz/sequencer", rev="3c206344dc64b5a0f150ea94cd2623b2a9a7da63"}
 
-# blockifier = { path = "/Users/mohit/Desktop/karnot/sequencer/crates/blockifier", features = ["testing"]}
-# starknet_api = { path = "/Users/mohit/Desktop/karnot/sequencer/crates/starknet_api", features = ["testing"]}
-# starknet_os = { path = "/Users/mohit/Desktop/karnot/sequencer/crates/starknet_os", features = ["testing"]}
-# starknet_patricia = { path = "/Users/mohit/Desktop/karnot/sequencer/crates/starknet_patricia", features = ["testing"]}
-# shared_execution_objects = { path = "/Users/mohit/Desktop/karnot/sequencer/crates/shared_execution_objects"}
+ blockifier = { path = "/Users/mohit/Desktop/karnot/sequencer/crates/blockifier", features = ["testing"]}
+ starknet_api = { path = "/Users/mohit/Desktop/karnot/sequencer/crates/starknet_api", features = ["testing"]}
+ starknet_os = { path = "/Users/mohit/Desktop/karnot/sequencer/crates/starknet_os", features = ["testing"]}
+ starknet_patricia = { path = "/Users/mohit/Desktop/karnot/sequencer/crates/starknet_patricia", features = ["testing"]}
+ shared_execution_objects = { path = "/Users/mohit/Desktop/karnot/sequencer/crates/shared_execution_objects"}
 
 cairo-lang-starknet = { version = "=2.12.0-dev.1" }
 cairo-lang-starknet-classes = { version = "=2.12.0-dev.1" }
