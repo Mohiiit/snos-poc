@@ -181,6 +181,11 @@ fn invoke_v3_to_blockifier(
         },
     );
 
+    // let invoke = blockifier::transaction::transactions::InvokeTransaction { tx: api_tx, tx_hash };
+    // let blockifier_txn = blockifier::transaction::transaction_execution::Transaction::Account(AccountTransaction(AccountTransaction::Invoke(
+    //     invoke,
+    // )));
+
     let api_txn_real =
         starknet_api::executable_transaction::InvokeTransaction::create(api_tx, &chain_id).unwrap();
     let again_once =
@@ -191,7 +196,7 @@ fn invoke_v3_to_blockifier(
             starknet_api::executable_transaction::AccountTransaction::Invoke(api_txn_real),
         ),
         blockifier_tx: blockifier::transaction::transaction_execution::Transaction::Account(
-            AccountTransaction::new_for_sequencing(again_once),
+            AccountTransaction::new_with_default_flags(again_once),
         ),
     })
     // Ok(blockifier::transaction::transaction_execution::Transaction::Account(AccountTransaction::new_for_sequencing(starknet_api::executable_transaction::AccountTransaction::Invoke(starknet_api::executable_transaction::InvokeTransaction::create(api_tx, ChainId::Other("asdf")).unwrap()))))

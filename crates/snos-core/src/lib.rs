@@ -1,7 +1,7 @@
 use cairo_vm::types::layout_name::LayoutName;
 use rpc_client::RpcClient;
 use starknet::core::types::BlockId;
-use starknet_api::core::{ChainId, ContractAddress};
+use starknet_api::core::{ChainId, CompiledClassHash, ContractAddress};
 use starknet_os::io::os_output::StarknetOsRunnerOutput;
 use starknet_os::{
     io::os_input::{OsChainInfo, OsHints, OsHintsConfig, StarknetOsInput},
@@ -24,7 +24,7 @@ use block_processor::collect_single_block_info;
 use cached_state::generate_cached_state_input;
 
 /// Configuration for chain-specific settings
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct ChainConfig {
     pub chain_id: ChainId,
     pub strk_fee_token_address: ContractAddress,
@@ -43,7 +43,7 @@ impl Default for ChainConfig {
 }
 
 /// Configuration for OS hints
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct OsHintsConfiguration {
     pub debug_mode: bool,
     pub full_output: bool,
@@ -169,7 +169,9 @@ pub async fn generate_pie(
         })?;
         cached_state_input
             .class_hash_to_compiled_class_hash
-            .retain(|class_hash, _| !all_deprecated_compiled_classes.contains_key(class_hash));
+            .retain(|class_hash, _| {
+                !all_deprecated_compiled_classes.contains_key(&CompiledClassHash(class_hash.0))
+            });
         log::debug!("Compiled classes are: {:?}", all_compiled_classes.keys());
         log::debug!(
             "Deprecated compiled classes are: {:?}",
@@ -227,6 +229,20 @@ pub async fn generate_pie(
         input.blocks.len()
     );
 
+    // Serialize OS hints to JSON for debugging/inspection
+    let os_hints_json_path = format!(
+        "os_hints_blocks_{}.json",
+        input
+            .blocks
+            .iter()
+            .map(|b| b.to_string())
+            .collect::<Vec<_>>()
+            .join("_")
+    );
+    if let Err(e) = serialize_os_hints_to_json(&os_hints, &os_hints_json_path) {
+        log::warn!("Failed to serialize OS hints to JSON: {}", e);
+    }
+
     log::debug!("Starting OS execution for multi-block processing");
     log::info!("Using layout: {:?}", LayoutName::all_cairo);
     let output = run_os_stateless(LayoutName::all_cairo, os_hints)
@@ -261,6 +277,176 @@ pub async fn generate_pie(
         blocks_processed: input.blocks.clone(),
         output_path: input.output_path.clone(),
     })
+}
+
+/// Helper function to serialize OsHints to JSON completely
+/// Since OsHints may not implement Serialize directly, we create a comprehensive custom serializable representation
+fn serialize_os_hints_to_json(
+    os_hints: &OsHints,
+    output_path: &str,
+) -> Result<(), PieGenerationError> {
+    use serde_json::json;
+
+    log::info!("Serializing OS hints to JSON file: {}", output_path);
+
+    // Serialize OS hints config
+    let os_hints_config_json = json!({
+        "debug_mode": os_hints.os_hints_config.debug_mode,
+        "full_output": os_hints.os_hints_config.full_output,
+        "use_kzg_da": os_hints.os_hints_config.use_kzg_da,
+        "chain_info": {
+            "chain_id": format!("{:?}", os_hints.os_hints_config.chain_info.chain_id),
+            "strk_fee_token_address": format!("{:#x}", os_hints.os_hints_config.chain_info.strk_fee_token_address.0.key())
+        }
+    });
+
+    // Serialize block inputs completely
+    let block_inputs_json: Vec<serde_json::Value> = os_hints.os_input.os_block_inputs.iter()
+        .map(|block_input| {
+            json!({
+                "block_info": {
+                    "block_number": block_input.block_info.block_number,
+                    "sequencer_address": format!("{:#x}", block_input.block_info.sequencer_address.0.key()),
+                    "block_timestamp": block_input.block_info.block_timestamp.0,
+                    "use_kzg_da": block_input.block_info.use_kzg_da,
+                    "gas_prices": {
+                        "eth_gas_prices": format!("{:#?}", block_input.block_info.gas_prices.eth_gas_prices),
+                        "strk_gas_prices": format!("{:#?}", block_input.block_info.gas_prices.strk_gas_prices),
+                    }
+                },
+                "transactions": block_input.transactions.iter().map(|tx| {
+                    // Use Debug format for comprehensive transaction serialization
+                    format!("{:#?}", tx)
+                }).collect::<Vec<_>>(),
+                "tx_execution_infos": block_input.tx_execution_infos.iter().map(|exec_info| {
+                    format!("{:#?}", exec_info)
+                }).collect::<Vec<_>>(),
+                "contract_state_commitment_info": format!("{:#?}", block_input.contract_state_commitment_info),
+                "contract_class_commitment_info": format!("{:#?}", block_input.contract_class_commitment_info),
+                "address_to_storage_commitment_info": block_input.address_to_storage_commitment_info.iter().map(|(addr, commitment_info)| {
+                    json!({
+                        "address": format!("{:#x}", addr.0.key()),
+                        "commitment_info": format!("{:#?}", commitment_info)
+                    })
+                }).collect::<Vec<_>>(),
+                "declared_class_hash_to_component_hashes": block_input.declared_class_hash_to_component_hashes.iter().map(|(class_hash, component_hashes)| {
+                    json!({
+                        "class_hash": format!("{:#x}", class_hash.0),
+                        "component_hashes": format!("{:#?}", component_hashes)
+                    })
+                }).collect::<Vec<_>>(),
+                "prev_block_hash": format!("{:#x}", block_input.prev_block_hash.0),
+                "new_block_hash": format!("{:#x}", block_input.new_block_hash.0),
+                "old_block_number_and_hash": block_input.old_block_number_and_hash.as_ref().map(|(block_number, block_hash)| {
+                    json!({
+                        "block_number": block_number.0,
+                        "block_hash": format!("{:#x}", block_hash.0)
+                    })
+                })
+            })
+        }).collect();
+
+    // Serialize cached state inputs completely
+    let cached_state_inputs_json: Vec<serde_json::Value> = os_hints.os_input.cached_state_inputs.iter()
+        .map(|cached_state| {
+            json!({
+                "storage": cached_state.storage.iter().map(|(addr, storage_map)| {
+                    json!({
+                        "address": format!("{:#x}", addr.0.key()),
+                        "storage": storage_map.iter().map(|(key, value)| {
+                            json!({
+                                "key": format!("{:#x}", key.0.key()),
+                                "value": format!("{:#x}", value)
+                            })
+                        }).collect::<Vec<_>>()
+                    })
+                }).collect::<Vec<_>>(),
+                "address_to_class_hash": cached_state.address_to_class_hash.iter().map(|(addr, class_hash)| {
+                    json!({
+                        "address": format!("{:#x}", addr.0.key()),
+                        "class_hash": format!("{:#x}", class_hash.0)
+                    })
+                }).collect::<Vec<_>>(),
+                "address_to_nonce": cached_state.address_to_nonce.iter().map(|(addr, nonce)| {
+                    json!({
+                        "address": format!("{:#x}", addr.0.key()),
+                        "nonce": format!("{:#x}", nonce.0)
+                    })
+                }).collect::<Vec<_>>(),
+                "class_hash_to_compiled_class_hash": cached_state.class_hash_to_compiled_class_hash.iter().map(|(class_hash, compiled_hash)| {
+                    json!({
+                        "class_hash": format!("{:#x}", class_hash.0),
+                        "compiled_class_hash": format!("{:#x}", compiled_hash.0)
+                    })
+                }).collect::<Vec<_>>()
+            })
+        }).collect();
+
+    // Serialize compiled classes completely
+    let compiled_classes_json: Vec<serde_json::Value> = os_hints
+        .os_input
+        .compiled_classes
+        .iter()
+        .map(|(class_hash, compiled_class)| {
+            json!({
+                "class_hash": format!("{:#x}", class_hash.0),
+                "compiled_class": format!("{:#?}", compiled_class)
+            })
+        })
+        .collect();
+
+    // Serialize deprecated compiled classes completely
+    let deprecated_compiled_classes_json: Vec<serde_json::Value> = os_hints
+        .os_input
+        .deprecated_compiled_classes
+        .iter()
+        .map(|(class_hash, deprecated_compiled_class)| {
+            json!({
+                "class_hash": format!("{:#x}", class_hash.0),
+                "deprecated_compiled_class": format!("{:#?}", deprecated_compiled_class)
+            })
+        })
+        .collect();
+
+    // Create the complete serializable representation
+    let complete_os_hints = json!({
+        "os_hints_config": os_hints_config_json,
+        "os_input": {
+            "os_block_inputs": block_inputs_json,
+            "cached_state_inputs": cached_state_inputs_json,
+            "compiled_classes": compiled_classes_json,
+            "deprecated_compiled_classes": deprecated_compiled_classes_json
+        },
+        "metadata": {
+            "serialization_timestamp": chrono::Utc::now().to_rfc3339(),
+            "serialization_note": "Complete serialization of OsHints including all nested structures and data.",
+            "statistics": {
+                "num_blocks": os_hints.os_input.os_block_inputs.len(),
+                "num_cached_states": os_hints.os_input.cached_state_inputs.len(),
+                "num_compiled_classes": os_hints.os_input.compiled_classes.len(),
+                "num_deprecated_compiled_classes": os_hints.os_input.deprecated_compiled_classes.len(),
+                "total_transactions": os_hints.os_input.os_block_inputs.iter()
+                    .map(|block| block.transactions.len())
+                    .sum::<usize>(),
+                "block_numbers": os_hints.os_input.os_block_inputs.iter()
+                    .map(|block_input| block_input.block_info.block_number)
+                    .collect::<Vec<_>>()
+            }
+        }
+    });
+
+    // Write to file
+    let json_string = serde_json::to_string_pretty(&complete_os_hints).map_err(|e| {
+        PieGenerationError::Io(std::io::Error::new(std::io::ErrorKind::InvalidData, e))
+    })?;
+
+    std::fs::write(output_path, json_string)?;
+    log::info!(
+        "Complete OS hints successfully serialized to: {}",
+        output_path
+    );
+
+    Ok(())
 }
 
 /// Helper function to sort ABI entries and normalize program attributes in a deprecated compiled class

@@ -48,9 +48,9 @@ fn convert_sierra_class_for_generic(
     // Convert starknet::core types to starknet_core types via JSON serialization
     // This handles the type differences between the crates
     let sierra_json = serde_json::to_string(sierra_class).map_err(to_state_err)?;
-    let starknet_core_sierra: starknet_core::types::FlattenedSierraClass = 
+    let starknet_core_sierra: starknet_core::types::FlattenedSierraClass =
         serde_json::from_str(&sierra_json).map_err(to_state_err)?;
-    
+
     // Use the From implementation that properly handles ABI conversion
     let generic_sierra = GenericSierraContractClass::from(starknet_core_sierra);
     Ok(generic_sierra)
@@ -70,12 +70,11 @@ fn convert_sierra_to_runnable(
     let generic_cairo_lang_class = generic_sierra
         .get_cairo_lang_contract_class()
         .map_err(to_state_err)?;
-    
-    let (version_id, _) = version_id_from_serialized_sierra_program(
-        &generic_cairo_lang_class.sierra_program,
-    )
-    .map_err(to_state_err)?;
-    
+
+    let (version_id, _) =
+        version_id_from_serialized_sierra_program(&generic_cairo_lang_class.sierra_program)
+            .map_err(to_state_err)?;
+
     let sierra_version = SierraVersion::new(
         version_id.major.try_into().map_err(to_state_err)?,
         version_id.minor.try_into().map_err(to_state_err)?,

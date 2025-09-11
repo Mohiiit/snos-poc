@@ -9,8 +9,9 @@ use starknet::core::types::{
 use starknet::core::utils::starknet_keccak;
 use starknet::providers::Provider;
 use starknet::providers::ProviderError;
+use starknet_api::hash::PoseidonHash;
+use starknet_api::state::ContractClassComponentHashes as OsContractClassComponentHashes;
 use starknet_crypto::poseidon_hash_many;
-use starknet_os::io::os_input::ContractClassComponentHashes as OsContractClassComponentHashes;
 use starknet_os_types::casm_contract_class::GenericCasmContractClass;
 use starknet_os_types::compiled_class::GenericCompiledClass;
 use starknet_os_types::deprecated_compiled_class::GenericDeprecatedCompiledClass;
@@ -37,11 +38,11 @@ impl ContractClassComponentHashes {
     pub fn to_os_format(&self) -> OsContractClassComponentHashes {
         OsContractClassComponentHashes {
             contract_class_version: self.contract_class_version,
-            external_functions_hash: HashOutput(self.external_functions_hash),
-            l1_handlers_hash: HashOutput(self.l1_handlers_hash),
-            constructors_hash: HashOutput(self.constructors_hash),
-            abi_hash: HashOutput(self.abi_hash),
-            sierra_program_hash: HashOutput(self.sierra_program_hash),
+            external_functions_hash: PoseidonHash(self.external_functions_hash),
+            l1_handlers_hash: PoseidonHash(self.l1_handlers_hash),
+            constructors_hash: PoseidonHash(self.constructors_hash),
+            abi_hash: self.abi_hash,
+            sierra_program_hash: self.sierra_program_hash,
         }
     }
 }

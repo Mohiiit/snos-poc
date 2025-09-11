@@ -18,10 +18,11 @@ use shared_execution_objects::central_objects::CentralTransactionExecutionInfo;
 use starknet::core::types::{BlockId, MaybePendingBlockWithTxHashes, MaybePendingBlockWithTxs};
 use starknet::providers::Provider;
 use starknet_api::block::{BlockHash, BlockNumber, StarknetVersion};
-use starknet_api::core::{ClassHash, ContractAddress};
+use starknet_api::core::{ClassHash, CompiledClassHash, ContractAddress};
 use starknet_api::deprecated_contract_class::ContractClass;
+use starknet_api::state::ContractClassComponentHashes;
 use starknet_api::state::StorageKey;
-use starknet_os::io::os_input::{CommitmentInfo, ContractClassComponentHashes, OsBlockInput};
+use starknet_os::io::os_input::{CommitmentInfo, OsBlockInput};
 use starknet_patricia::hash::hash_trait::HashOutput;
 use starknet_patricia::patricia_merkle_tree::types::SubTreeHeight;
 use starknet_types_core::felt::Felt;
@@ -183,8 +184,8 @@ pub async fn collect_single_block_info(
     rpc_client: RpcClient,
 ) -> (
     OsBlockInput,
-    BTreeMap<ClassHash, CasmContractClass>,
-    BTreeMap<ClassHash, ContractClass>,
+    BTreeMap<CompiledClassHash, CasmContractClass>,
+    BTreeMap<CompiledClassHash, ContractClass>,
     HashSet<ContractAddress>,
     HashSet<ClassHash>,
     HashMap<ContractAddress, HashSet<StorageKey>>,
@@ -413,7 +414,7 @@ pub async fn collect_single_block_info(
         .map(|(execution_info, _)| execution_info)
         .collect();
 
-    // write_serializable_to_file(&txn_execution_infos, &format!("debug/txn_execution_info_{}.json", block_number), None).expect("Failed to write traces to file");
+    // write_serializable_to_file(&txn_execution_infos, &format!("debug/mainnet_txn_execution_info_{}.json", block_number), None).expect("Failed to write traces to file");
 
     // panic!("for now");
     let central_txn_execution_infos: Vec<CentralTransactionExecutionInfo> = txn_execution_infos
@@ -422,12 +423,12 @@ pub async fn collect_single_block_info(
         .map(|execution_info| execution_info.clone().into())
         .collect();
 
-    // write_serializable_to_file(
-    //     &central_txn_execution_infos,
-    //     &format!("debug/central_txn_info_{}.json", block_number),
-    //     None,
-    // )
-    // .expect("Failed to write traces to file");
+    write_serializable_to_file(
+        &central_txn_execution_infos,
+        &format!("debug/mainnet_central_txn_info_{}.json", block_number),
+        None,
+    )
+    .expect("Failed to write traces to file");
 
     // central_txn_execution_infos[0].actual_fee  = Fee(central_txn_execution_infos[0].actual_fee.0 - 644127000000000);
     // panic!("temp");
@@ -680,11 +681,12 @@ pub async fn collect_single_block_info(
     );
 
     log::debug!(" Step 17: Converting compiled classes to BTreeMap with CompiledClassHash keys...");
-    let mut compiled_classes_btree: BTreeMap<ClassHash, CasmContractClass> = BTreeMap::new();
+    let mut compiled_classes_btree: BTreeMap<CompiledClassHash, CasmContractClass> =
+        BTreeMap::new();
 
     for (class_hash_felt, generic_class) in compiled_classes {
         log::debug!("class hash here is: {:?}", class_hash_felt);
-        let class_hash = ClassHash(class_hash_felt);
+        let class_hash = CompiledClassHash(class_hash_felt);
         let cairo_lang_class = generic_class
             .get_cairo_lang_contract_class()
             .expect("Failed to get cairo-lang contract class")
@@ -717,10 +719,11 @@ pub async fn collect_single_block_info(
         compiled_classes_btree.insert(class_hash, cairo_lang_class);
     }
 
-    let mut deprecated_compiled_classes_btree: BTreeMap<ClassHash, ContractClass> = BTreeMap::new();
+    let mut deprecated_compiled_classes_btree: BTreeMap<CompiledClassHash, ContractClass> =
+        BTreeMap::new();
 
     for (class_hash_felt, generic_class) in deprecated_compiled_classes {
-        let class_hash = ClassHash(class_hash_felt);
+        let class_hash = CompiledClassHash(class_hash_felt);
         let starknet_api_class = generic_class
             .to_starknet_api_contract_class()
             .expect("Failed to convert to starknet-api contract class");
