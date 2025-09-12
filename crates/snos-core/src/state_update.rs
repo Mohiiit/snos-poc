@@ -280,7 +280,10 @@ async fn build_compiled_class_and_maybe_update_class_hash_to_compiled_class_hash
                 )) => {
                     // The contract was deployed in the current block, nothing to worry about
                     debug!("this is for the contract: {:?}", contract_address);
-                    debug!("Contract not found - likely deployed in current block and error is: {:?}", e);
+                    debug!(
+                        "Contract not found - likely deployed in current block and error is: {:?}",
+                        e
+                    );
                 }
                 _ => return Err(e),
             }

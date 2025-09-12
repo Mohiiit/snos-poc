@@ -1,3 +1,4 @@
+use clap::Parser;
 use log::{error, info};
 use snos_core::{generate_pie, ChainConfig, OsHintsConfiguration, PieGenerationInput};
 
@@ -32,18 +33,100 @@ use snos_core::{generate_pie, ChainConfig, OsHintsConfiguration, PieGenerationIn
 //     BlockNumber::new_or_panic(1943704);
 // pub const MAINNET_RANGE_WHERE_RE_EXECUTION_IS_IMPOSSIBLE_END: BlockNumber =
 //     BlockNumber::new_or_panic(1952704);
+
+// sepolia info:
+//
+// 🔍 COMPILED CLASS HASH INCONSISTENT (2 blocks)
+// ----------------------------------------
+//   Block  994169:    2.5KB [exact_match] - error_blocks_994169.txt
+//   Block  994172:    2.5KB [exact_match] - error_blocks_994172.txt
+//
+// 🔍 L1 GAS UNREACHABLE ERROR (195 blocks)
+// ----------------------------------------
+//   Block  926808:    0.3KB [l1_gas_zero_constraint] - error_blocks_926808.txt
+//   Block  930591:    0.3KB [l1_gas_zero_constraint] - error_blocks_930591.txt
+//   Block  934517:    0.3KB [l1_gas_zero_constraint] - error_blocks_934517.txt
+//   Block  934558:    0.3KB [l1_gas_zero_constraint] - error_blocks_934558.txt
+//   Block  934584:    0.3KB [l1_gas_zero_constraint] - error_blocks_934584.txt
+//   Block  940399:    0.3KB [l1_gas_zero_constraint] - error_blocks_940399.txt
+//   Block  940976:    0.3KB [l1_gas_zero_constraint] - error_blocks_940976.txt
+//   Block  941423:    0.3KB [l1_gas_zero_constraint] - error_blocks_941423.txt
+//   Block  941939:    0.3KB [l1_gas_zero_constraint] - error_blocks_941939.txt
+//   Block  941972:    0.3KB [l1_gas_zero_constraint] - error_blocks_941972.txt
+//   Block  941987:    0.3KB [l1_gas_zero_constraint] - error_blocks_941987.txt
+//   Block  942032:    0.3KB [l1_gas_zero_constraint] - error_blocks_942032.txt
+//   Block  942054:    0.3KB [l1_gas_zero_constraint] - error_blocks_942054.txt
+//   Block  942086:    0.3KB [l1_gas_zero_constraint] - error_blocks_942086.txt
+//   Block  942104:    0.3KB [l1_gas_zero_constraint] - error_blocks_942104.txt
+//   ... and 180 more blocks
+//
+// 🔍 COMPILED CLASS BUILD ERROR (2 blocks)
+// ----------------------------------------
+//   Block 1004270:    0.4KB [compiled_class_build_issue] - error_blocks_1004270.txt
+//   Block 1023098:    0.4KB [compiled_class_build_issue] - error_blocks_1023098.txt
+//
+// 🔍 GATEWAY TIMEOUT ERRORS (1 blocks)
+// ----------------------------------------
+//   Block 1041119:    0.6KB [gateway_502_bad] - error_blocks_1041119.txt
+//
+// 🔍 OTHER ERRORS (12 blocks)
+// ----------------------------------------
+//   Block  927143:    6.7KB [unmatched] - error_blocks_927143.txt
+//   Block  940168:    8.8KB [unmatched] - error_blocks_940168.txt
+//   Block 1023234:    0.5KB [unmatched] - error_blocks_1023234.txt
+//   Block 1023294:    0.5KB [unmatched] - error_blocks_1023294.txt
+//   Block 1025049:    4.5KB [unmatched] - error_blocks_1025049.txt
+//   Block 1038850:    0.5KB [unmatched] - error_blocks_1038850.txt
+//   Block 1043384:    5.6KB [unmatched] - error_blocks_1043384.txt
+//   Block 1043767:    7.9KB [unmatched] - error_blocks_1043767.txt
+//   Block 1060745:    8.8KB [unmatched] - error_blocks_1060745.txt
+//   Block 1061489:    8.8KB [unmatched] - error_blocks_1061489.txt
+//   Block 1061495:    8.8KB [unmatched] - error_blocks_1061495.txt
+//   Block 1067436:    4.4KB [unmatched] - error_blocks_1067436.txt
+
+#[derive(Parser)]
+#[command(author, version, about, long_about = None)]
+#[command(name = "snos-poc")]
+#[command(about = "SNOS PoC - Starknet OS Proof of Concept for block processing")]
+struct Cli {
+    /// RPC URL to connect to
+    #[arg(short, long, default_value = "https://pathfinder-mainnet.d.karnot.xyz")]
+    rpc_url: String,
+
+    /// Block number(s) to process
+    #[arg(short, long, value_delimiter = ',')]
+    blocks: Vec<u64>,
+
+    /// Output path for the PIE file
+    #[arg(short, long)]
+    output: Option<String>,
+
+    /// Chain configuration (defaults to Sepolia)
+    #[arg(long, default_value = "sepolia")]
+    chain: String,
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     env_logger::init();
+
+    let cli = Cli::parse();
+
     info!("🚀 Starting SNOS PoC application with clean architecture");
+
+    // Validate that at least one block is provided
+    if cli.blocks.is_empty() {
+        error!("❌ At least one block number must be provided");
+        std::process::exit(1);
+    }
 
     // Build the input configuration
     let input = PieGenerationInput {
-        rpc_url: "https://pathfinder-mainnet.d.karnot.xyz".to_string(),
-        blocks: vec![1952705], // 1872869 -> l1_handler, 1873475-> declare, 1873675 -> deploy account (from sepolia)
-        chain_config: ChainConfig::default(), // Uses Sepolia defaults
+        rpc_url: cli.rpc_url.clone(),
+        blocks: cli.blocks.clone(),
+        chain_config: ChainConfig::default(), // Uses Sepolia defaults for now
         os_hints_config: OsHintsConfiguration::default(), // Uses sensible defaults
-        output_path: None,
+        output_path: cli.output.clone(),
     };
 
     info!("📋 Configuration:");

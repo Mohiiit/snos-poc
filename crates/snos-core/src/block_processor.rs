@@ -305,7 +305,6 @@ pub async fn collect_single_block_info(
     let (mut accessed_addresses_felt, accessed_classes_felt) =
         get_subcalled_contracts_from_tx_traces(&traces);
 
-
     log::debug!(" Step 7: Getting formatted state update...");
 
     // panic!("time out");
@@ -386,7 +385,14 @@ pub async fn collect_single_block_info(
         .map(|(execution_info, _)| execution_info)
         .collect();
 
-    log::debug!("sierra gas is: {:?}", txn_execution_infos[0].receipt.resources.computation.sierra_gas);
+    log::debug!(
+        "sierra gas is: {:?}",
+        txn_execution_infos[0]
+            .receipt
+            .resources
+            .computation
+            .sierra_gas
+    );
 
     // write_serializable_to_file(&txn_execution_infos, &format!("debug/mainnet_txn_execution_info_{}.json", block_number), None).expect("Failed to write traces to file");
 
@@ -415,14 +421,10 @@ pub async fn collect_single_block_info(
         accessed_keys_by_address.len()
     );
 
-    accessed_addresses_felt.extend(
-        accessed_keys_by_address
-            .keys()
-            .map(|contract_addr| {
-                let felt: Felt = (*contract_addr).into();
-                Felt252::from(felt)
-            })
-    );
+    accessed_addresses_felt.extend(accessed_keys_by_address.keys().map(|contract_addr| {
+        let felt: Felt = (*contract_addr).into();
+        Felt252::from(felt)
+    }));
 
     let processed_state_update = get_formatted_state_update(
         &rpc_client,
@@ -431,11 +433,20 @@ pub async fn collect_single_block_info(
         accessed_addresses_felt.clone(),
         accessed_classes_felt.clone(),
     )
-        .await
-        .expect("issue while calling formatted state update");
-    log::debug!("they keys of the compiled class hash is: {:?}", processed_state_update.compiled_classes.keys());
-    log::debug!("they keys of the decprecated class hash is: {:?}", processed_state_update.deprecated_compiled_classes.keys());
-    log::debug!("they keys of the compiled class hash is: {:?}", processed_state_update.class_hash_to_compiled_class_hash);
+    .await
+    .expect("issue while calling formatted state update");
+    log::debug!(
+        "they keys of the compiled class hash is: {:?}",
+        processed_state_update.compiled_classes.keys()
+    );
+    log::debug!(
+        "they keys of the decprecated class hash is: {:?}",
+        processed_state_update.deprecated_compiled_classes.keys()
+    );
+    log::debug!(
+        "they keys of the compiled class hash is: {:?}",
+        processed_state_update.class_hash_to_compiled_class_hash
+    );
 
     // Convert Felt252 to proper types
     let accessed_addresses: HashSet<ContractAddress> = accessed_addresses_felt

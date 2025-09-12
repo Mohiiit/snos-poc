@@ -33,7 +33,7 @@ pub struct ChainConfig {
 impl Default for ChainConfig {
     fn default() -> Self {
         Self {
-            chain_id: ChainId::Mainnet,
+            chain_id: ChainId::Sepolia,
             strk_fee_token_address: ContractAddress::try_from(Felt::from_hex_unchecked(
                 "0x04718f5a0fc34cc1af16a1cdee98ffb20c31f5cd61d6ab07201858f4287c938d",
             ))
@@ -54,8 +54,8 @@ impl Default for OsHintsConfiguration {
     fn default() -> Self {
         Self {
             debug_mode: true,
-            full_output: false,
-            use_kzg_da: true,
+            full_output: true,
+            use_kzg_da: false,
         }
     }
 }
