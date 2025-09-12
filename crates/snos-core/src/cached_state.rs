@@ -104,7 +104,8 @@ pub async fn generate_cached_state_input(
             .await
         {
             Ok(compiled_hash) => compiled_hash,
-            Err(_e) => {
+            Err(e) => {
+                log::warn!(">>>>> got the error while getting the compiled hash: {:?}", e);
                 class_hash_to_compiled_class_hash
                     .insert(*class_hash, CompiledClassHash(Felt::ZERO));
                 // If we can't get the compiled class hash, skip it

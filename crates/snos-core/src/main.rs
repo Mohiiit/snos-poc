@@ -28,6 +28,10 @@ use snos_core::{generate_pie, ChainConfig, OsHintsConfiguration, PieGenerationIn
 //    Count: 10 (0.6%)
 //    Blocks: 1944976, 1945751, 1945757, 1945779, 1945788, 1945818, 1945833, 1945850, 1946082, 1946705, ... and 2 more
 
+// pub const MAINNET_RANGE_WHERE_RE_EXECUTION_IS_IMPOSSIBLE_START: BlockNumber =
+//     BlockNumber::new_or_panic(1943704);
+// pub const MAINNET_RANGE_WHERE_RE_EXECUTION_IS_IMPOSSIBLE_END: BlockNumber =
+//     BlockNumber::new_or_panic(1952704);
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     env_logger::init();
@@ -36,7 +40,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // Build the input configuration
     let input = PieGenerationInput {
         rpc_url: "https://pathfinder-mainnet.d.karnot.xyz".to_string(),
-        blocks: vec![1943743], // 1872869 -> l1_handler, 1873475-> declare, 1873675 -> deploy account (from sepolia)
+        blocks: vec![1952705], // 1872869 -> l1_handler, 1873475-> declare, 1873675 -> deploy account (from sepolia)
         chain_config: ChainConfig::default(), // Uses Sepolia defaults
         os_hints_config: OsHintsConfiguration::default(), // Uses sensible defaults
         output_path: None,

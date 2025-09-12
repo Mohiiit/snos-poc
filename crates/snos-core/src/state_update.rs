@@ -257,6 +257,9 @@ async fn build_compiled_class_and_maybe_update_class_hash_to_compiled_class_hash
         HashMap::new();
 
     for contract_address in accessed_addresses {
+        if *contract_address == Felt::TWO || *contract_address == Felt::ONE {
+            continue;
+        }
         // In case there is a class change, we need to get the compiled class for
         // the block to prove and for the previous block as they may differ.
         // Note that we must also consider the case where the contract was deployed in the current
@@ -276,7 +279,8 @@ async fn build_compiled_class_and_maybe_update_class_hash_to_compiled_class_hash
                     StarknetError::ContractNotFound,
                 )) => {
                     // The contract was deployed in the current block, nothing to worry about
-                    debug!("Contract not found - likely deployed in current block");
+                    debug!("this is for the contract: {:?}", contract_address);
+                    debug!("Contract not found - likely deployed in current block and error is: {:?}", e);
                 }
                 _ => return Err(e),
             }
