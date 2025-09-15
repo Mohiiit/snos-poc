@@ -36,12 +36,12 @@ use snos_core::{generate_pie, ChainConfig, OsHintsConfiguration, PieGenerationIn
 
 // sepolia info:
 //
-// 🔍 COMPILED CLASS HASH INCONSISTENT (2 blocks)
+// 🔍 COMPILED CLASS HASH INCONSISTENT (2 blocks) -> solved
 // ----------------------------------------
-//   Block  994169:    2.5KB [exact_match] - error_blocks_994169.txt
-//   Block  994172:    2.5KB [exact_match] - error_blocks_994172.txt
+//   Block  994169:    2.5KB [exact_match] - error_blocks_994169.txt -> fixed
+//   Block  994172:    2.5KB [exact_match] - error_blocks_994172.txt -> fixed
 //
-// 🔍 L1 GAS UNREACHABLE ERROR (195 blocks)
+// 🔍 L1 GAS UNREACHABLE ERROR (195 blocks) -> solved
 // ----------------------------------------
 //   Block  926808:    0.3KB [l1_gas_zero_constraint] - error_blocks_926808.txt
 //   Block  930591:    0.3KB [l1_gas_zero_constraint] - error_blocks_930591.txt
@@ -60,29 +60,29 @@ use snos_core::{generate_pie, ChainConfig, OsHintsConfiguration, PieGenerationIn
 //   Block  942104:    0.3KB [l1_gas_zero_constraint] - error_blocks_942104.txt
 //   ... and 180 more blocks
 //
-// 🔍 COMPILED CLASS BUILD ERROR (2 blocks)
+// 🔍 COMPILED CLASS BUILD ERROR (2 blocks) -> solved
 // ----------------------------------------
-//   Block 1004270:    0.4KB [compiled_class_build_issue] - error_blocks_1004270.txt
-//   Block 1023098:    0.4KB [compiled_class_build_issue] - error_blocks_1023098.txt
+//   Block 1004270:    0.4KB [compiled_class_build_issue] - error_blocks_1004270.txt -> fixed
+//   Block 1023098:    0.4KB [compiled_class_build_issue] - error_blocks_1023098.txt -> fixed
 //
-// 🔍 GATEWAY TIMEOUT ERRORS (1 blocks)
+// 🔍 GATEWAY TIMEOUT ERRORS (1 blocks) -> solved
 // ----------------------------------------
-//   Block 1041119:    0.6KB [gateway_502_bad] - error_blocks_1041119.txt
+//   Block 1041119:    0.6KB [gateway_502_bad] - error_blocks_1041119.txt -> fixed
 //
-// 🔍 OTHER ERRORS (12 blocks)
+// 🔍 OTHER ERRORS (12 blocks) ->
 // ----------------------------------------
-//   Block  927143:    6.7KB [unmatched] - error_blocks_927143.txt
-//   Block  940168:    8.8KB [unmatched] - error_blocks_940168.txt
-//   Block 1023234:    0.5KB [unmatched] - error_blocks_1023234.txt
-//   Block 1023294:    0.5KB [unmatched] - error_blocks_1023294.txt
-//   Block 1025049:    4.5KB [unmatched] - error_blocks_1025049.txt
-//   Block 1038850:    0.5KB [unmatched] - error_blocks_1038850.txt
-//   Block 1043384:    5.6KB [unmatched] - error_blocks_1043384.txt
-//   Block 1043767:    7.9KB [unmatched] - error_blocks_1043767.txt
-//   Block 1060745:    8.8KB [unmatched] - error_blocks_1060745.txt
-//   Block 1061489:    8.8KB [unmatched] - error_blocks_1061489.txt
-//   Block 1061495:    8.8KB [unmatched] - error_blocks_1061495.txt
-//   Block 1067436:    4.4KB [unmatched] - error_blocks_1067436.txt
+//   Block  927143:    6.7KB [unmatched] - error_blocks_927143.txt -> fixed
+//   Block  940168:    8.8KB [unmatched] - error_blocks_940168.txt -> fixed
+//   Block 1023234:    0.5KB [unmatched] - error_blocks_1023234.txt -> not fixed (something related to the pathfinder traces)
+//   Block 1023294:    0.5KB [unmatched] - error_blocks_1023294.txt -> not fixed (something related to the pathfinder traces)
+//   Block 1025049:    4.5KB [unmatched] - error_blocks_1025049.txt -> fixed
+//   Block 1038850:    0.5KB [unmatched] - error_blocks_1038850.txt -> not fixed (something related to the pathfinder traces)
+//   Block 1043384:    5.6KB [unmatched] - error_blocks_1043384.txt -> fixed
+//   Block 1043767:    7.9KB [unmatched] - error_blocks_1043767.txt -> fixed
+//   Block 1060745:    8.8KB [unmatched] - error_blocks_1060745.txt -> fixed
+//   Block 1061489:    8.8KB [unmatched] - error_blocks_1061489.txt -> fixed
+//   Block 1061495:    8.8KB [unmatched] - error_blocks_1061495.txt -> fixed
+//   Block 1067436:    4.4KB [unmatched] - error_blocks_1067436.txt -> fixed
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
