@@ -3,6 +3,7 @@ use std::time::Duration;
 
 use clap::Parser;
 use log::{debug, error, info, warn};
+use serde::{Deserialize, Serialize};
 use starknet::core::types::BlockId;
 use starknet::providers::Provider;
 use tokio::time::sleep;
@@ -30,12 +31,58 @@ impl std::fmt::Display for ProcessError {
 
 impl std::error::Error for ProcessError {}
 
+/// Structure to parse the JSON file containing block numbers (original format)
+#[derive(Deserialize, Serialize, Debug)]
+struct BlocksJson {
+    #[serde(default)]
+    error_blocks: Vec<u64>,
+    #[serde(default)]
+    total_count: Option<usize>,
+    #[serde(default)]
+    min_block: Option<u64>,
+    #[serde(default)]
+    max_block: Option<u64>,
+}
+
+/// Structure to parse JSON files from error decoding script
+#[derive(Deserialize, Serialize, Debug)]
+struct ErrorDecodingJson {
+    metadata: ErrorMetadata,
+    failing_blocks: Vec<u64>,
+    #[serde(default)]
+    detailed_info: Vec<serde_json::Value>, // We don't need the detailed info for processing
+}
+
+#[derive(Deserialize, Serialize, Debug)]
+struct ErrorMetadata {
+    error_type: String,
+    description: String,
+    timestamp: String,
+    total_blocks: usize,
+}
+
+/// Enum to represent different execution modes
+#[derive(Debug)]
+enum ExecutionMode {
+    /// Start from a specific block and process sequentially
+    Sequential { start_block: u64 },
+    /// Process specific blocks from JSON file
+    FromJson { blocks: Vec<u64> },
+}
+
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 struct Args {
-    /// Starting block number
+    /// Starting block number (only used if --json-file is not provided)
     #[arg(short, long)]
-    start_block: u64,
+    start_block: Option<u64>,
+
+    /// JSON file containing block numbers to process
+    /// Supports two formats:
+    /// 1. Original: {"error_blocks": [1, 2, 3], "total_count": 3}
+    /// 2. Error decoding: {"failing_blocks": [1, 2, 3], "metadata": {...}}
+    #[arg(short, long)]
+    json_file: Option<String>,
 
     /// RPC URL to connect to
     #[arg(short, long)]
@@ -55,9 +102,48 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     env_logger::init();
     let args = Args::parse();
 
-    info!("🚀 Starting RPC Replay service");
+    // Validate arguments and determine execution mode
+    let execution_mode = match (&args.start_block, &args.json_file) {
+        (Some(start_block), None) => {
+            info!("🚀 Starting RPC Replay service in SEQUENTIAL mode");
+            ExecutionMode::Sequential {
+                start_block: *start_block,
+            }
+        }
+        (None, Some(json_file)) => {
+            info!("🚀 Starting RPC Replay service in JSON mode");
+            let blocks = load_blocks_from_json(json_file)?;
+            info!("📄 Loaded {} blocks from JSON file", blocks.len());
+            ExecutionMode::FromJson { blocks }
+        }
+        (Some(_), Some(_)) => {
+            return Err(
+                "Cannot specify both --start-block and --json-file. Choose one mode.".into(),
+            );
+        }
+        (None, None) => {
+            return Err("Must specify either --start-block for sequential mode or --json-file for JSON mode.".into());
+        }
+    };
+
     info!("Configuration:");
-    info!("  Start block: {}", args.start_block);
+    match &execution_mode {
+        ExecutionMode::Sequential { start_block } => {
+            info!("  Mode: Sequential");
+            info!("  Start block: {}", start_block);
+        }
+        ExecutionMode::FromJson { blocks } => {
+            info!("  Mode: JSON file");
+            info!("  Total blocks to process: {}", blocks.len());
+            if !blocks.is_empty() {
+                info!(
+                    "  Block range: {} to {}",
+                    blocks.iter().min().unwrap(),
+                    blocks.iter().max().unwrap()
+                );
+            }
+        }
+    }
     info!("  RPC URL: {}", args.rpc_url);
     info!("  Check interval: {} seconds", args.interval);
     info!("  Output directory: {}", args.output_dir);
@@ -68,16 +154,32 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // Initialize RPC client for block checking
     let rpc_client = RpcClient::new(&args.rpc_url);
 
-    let mut current_block = args.start_block;
+    info!("🔄 Starting block processing");
 
-    info!("🔄 Starting infinite block processing loop");
+    match execution_mode {
+        ExecutionMode::Sequential { start_block } => {
+            process_sequential_mode(&args, &rpc_client, start_block).await
+        }
+        ExecutionMode::FromJson { blocks } => process_json_mode(&args, &rpc_client, blocks).await,
+    }
+}
+
+/// Process blocks in sequential mode (original behavior)
+async fn process_sequential_mode(
+    args: &Args,
+    rpc_client: &RpcClient,
+    start_block: u64,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let mut current_block = start_block;
+
+    info!("🔄 Starting infinite sequential block processing loop");
 
     loop {
         let block_set = [current_block];
         info!("📋 Processing block set: {:?}", block_set);
 
         // Check if all blocks exist
-        match check_blocks_exist(&rpc_client, &block_set).await {
+        match check_blocks_exist(rpc_client, &block_set).await {
             Ok(true) => {
                 debug!(
                     "All blocks in set {:?} exist, proceeding with PIE generation",
@@ -85,7 +187,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 );
 
                 // Generate PIE for this block set
-                match process_block_set(&args, &block_set).await {
+                match process_block_set(args, &block_set).await {
                     Ok(output_path) => {
                         info!(
                             "Successfully generated PIE for blocks {:?} -> {}",
@@ -124,6 +226,168 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     }
 }
 
+/// Process blocks from JSON file (one at a time)
+async fn process_json_mode(
+    args: &Args,
+    rpc_client: &RpcClient,
+    mut blocks: Vec<u64>,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    // Sort blocks to process them in order
+    blocks.sort();
+
+    let total_blocks = blocks.len();
+    let mut processed_count = 0;
+    let mut failed_count = 0;
+
+    info!(
+        "🔄 Starting JSON mode block processing for {} blocks",
+        total_blocks
+    );
+
+    // Process each block individually
+    for (index, &block_number) in blocks.iter().enumerate() {
+        let progress = index + 1;
+
+        info!(
+            "📦 Processing block {}/{}: {}",
+            progress, total_blocks, block_number
+        );
+
+        let block_set = [block_number];
+
+        // Check if this block exists
+        match check_blocks_exist(rpc_client, &block_set).await {
+            Ok(true) => {
+                debug!(
+                    "Block {} exists, proceeding with PIE generation",
+                    block_number
+                );
+
+                // Process this block using the existing process_block_set function
+                match process_block_set(args, &block_set).await {
+                    Ok(output_path) => {
+                        info!(
+                            "✅ Successfully generated PIE for block {} ({}/{}) -> {}",
+                            block_number, progress, total_blocks, output_path
+                        );
+                        processed_count += 1;
+                    }
+                    Err(e) => {
+                        error!(
+                            "❌ Failed to generate PIE for block {} ({}/{}): {}",
+                            block_number, progress, total_blocks, e
+                        );
+
+                        // Write error to file for this block
+                        let error_file =
+                            format!("{}/error_blocks_{}.txt", args.output_dir, block_number);
+
+                        if let Err(write_err) =
+                            write_error_to_file(&error_file, &block_set, &e).await
+                        {
+                            error!("Failed to write error file {}: {}", error_file, write_err);
+                        }
+
+                        failed_count += 1;
+                    }
+                }
+            }
+            Ok(false) => {
+                warn!("Block {} does not exist yet, skipping", block_number);
+                failed_count += 1;
+            }
+            Err(e) => {
+                warn!("Error checking block {}: {}, skipping", block_number, e);
+                failed_count += 1;
+            }
+        }
+
+        // Progress update every 10 blocks or on the last block
+        if progress % 10 == 0 || progress == total_blocks {
+            info!(
+                "📊 Progress: {}/{} blocks processed ({} successful, {} failed)",
+                progress, total_blocks, processed_count, failed_count
+            );
+        }
+    }
+
+    info!("🎯 JSON mode processing completed!");
+    info!("📈 Final results:");
+    info!("  Total blocks: {}", total_blocks);
+    info!("  Successfully processed: {}", processed_count);
+    info!("  Failed: {}", failed_count);
+    info!(
+        "  Success rate: {:.1}%",
+        (processed_count as f64 / total_blocks as f64) * 100.0
+    );
+
+    Ok(())
+}
+
+/// Load blocks from JSON file (supports both formats)
+fn load_blocks_from_json(
+    file_path: &str,
+) -> Result<Vec<u64>, Box<dyn std::error::Error + Send + Sync>> {
+    let file_content = fs::read_to_string(file_path)
+        .map_err(|e| format!("Failed to read JSON file {}: {}", file_path, e))?;
+
+    // First try to parse as the new error decoding format
+    if let Ok(error_decoding_json) = serde_json::from_str::<ErrorDecodingJson>(&file_content) {
+        if error_decoding_json.failing_blocks.is_empty() {
+            return Err("JSON file contains no blocks to process".into());
+        }
+
+        info!(
+            "📄 Loaded blocks from {} (error decoding format): {:?}",
+            file_path,
+            if error_decoding_json.failing_blocks.len() <= 10 {
+                format!("{:?}", error_decoding_json.failing_blocks)
+            } else {
+                format!(
+                    "{:?}... and {} more",
+                    &error_decoding_json.failing_blocks[..10],
+                    error_decoding_json.failing_blocks.len() - 10
+                )
+            }
+        );
+
+        info!(
+            "📋 Error type: {} - {}",
+            error_decoding_json.metadata.error_type, error_decoding_json.metadata.description
+        );
+
+        return Ok(error_decoding_json.failing_blocks);
+    }
+
+    // If that fails, try the original format
+    let blocks_json: BlocksJson = serde_json::from_str(&file_content).map_err(|e| {
+        format!(
+            "Failed to parse JSON file {} as either format: {}",
+            file_path, e
+        )
+    })?;
+
+    if blocks_json.error_blocks.is_empty() {
+        return Err("JSON file contains no blocks to process".into());
+    }
+
+    info!(
+        "📄 Loaded blocks from {} (original format): {:?}",
+        file_path,
+        if blocks_json.error_blocks.len() <= 10 {
+            format!("{:?}", blocks_json.error_blocks)
+        } else {
+            format!(
+                "{:?}... and {} more",
+                &blocks_json.error_blocks[..10],
+                blocks_json.error_blocks.len() - 10
+            )
+        }
+    );
+
+    Ok(blocks_json.error_blocks)
+}
+
 /// Check if all blocks in the set exist
 async fn check_blocks_exist(
     rpc_client: &RpcClient,
@@ -155,7 +419,7 @@ async fn check_blocks_exist(
     Ok(true)
 }
 
-/// Process a set of 1 block and generate PIE
+/// Process a set of 1 block and generate PIE (keeping original signature)
 async fn process_block_set(args: &Args, blocks: &[u64; 1]) -> Result<String, ProcessError> {
     let output_filename = format!("cairo_pie_blocks_{}.zip", blocks[0]);
 

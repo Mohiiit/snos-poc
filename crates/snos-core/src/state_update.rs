@@ -9,8 +9,9 @@ use starknet::core::types::{
 use starknet::core::utils::starknet_keccak;
 use starknet::providers::Provider;
 use starknet::providers::ProviderError;
+use starknet_api::hash::PoseidonHash;
+use starknet_api::state::ContractClassComponentHashes as OsContractClassComponentHashes;
 use starknet_crypto::poseidon_hash_many;
-use starknet_os::io::os_input::ContractClassComponentHashes as OsContractClassComponentHashes;
 use starknet_os_types::casm_contract_class::GenericCasmContractClass;
 use starknet_os_types::compiled_class::GenericCompiledClass;
 use starknet_os_types::deprecated_compiled_class::GenericDeprecatedCompiledClass;
@@ -37,11 +38,11 @@ impl ContractClassComponentHashes {
     pub fn to_os_format(&self) -> OsContractClassComponentHashes {
         OsContractClassComponentHashes {
             contract_class_version: self.contract_class_version,
-            external_functions_hash: HashOutput(self.external_functions_hash),
-            l1_handlers_hash: HashOutput(self.l1_handlers_hash),
-            constructors_hash: HashOutput(self.constructors_hash),
-            abi_hash: HashOutput(self.abi_hash),
-            sierra_program_hash: HashOutput(self.sierra_program_hash),
+            external_functions_hash: PoseidonHash(self.external_functions_hash),
+            l1_handlers_hash: PoseidonHash(self.l1_handlers_hash),
+            constructors_hash: PoseidonHash(self.constructors_hash),
+            abi_hash: self.abi_hash,
+            sierra_program_hash: self.sierra_program_hash,
         }
     }
 }
@@ -256,6 +257,9 @@ async fn build_compiled_class_and_maybe_update_class_hash_to_compiled_class_hash
         HashMap::new();
 
     for contract_address in accessed_addresses {
+        if *contract_address == Felt::TWO || *contract_address == Felt::ONE {
+            continue;
+        }
         // In case there is a class change, we need to get the compiled class for
         // the block to prove and for the previous block as they may differ.
         // Note that we must also consider the case where the contract was deployed in the current
@@ -275,7 +279,11 @@ async fn build_compiled_class_and_maybe_update_class_hash_to_compiled_class_hash
                     StarknetError::ContractNotFound,
                 )) => {
                     // The contract was deployed in the current block, nothing to worry about
-                    debug!("Contract not found - likely deployed in current block");
+                    debug!("this is for the contract: {:?}", contract_address);
+                    debug!(
+                        "Contract not found - likely deployed in current block and error is: {:?}",
+                        e
+                    );
                 }
                 _ => return Err(e),
             }

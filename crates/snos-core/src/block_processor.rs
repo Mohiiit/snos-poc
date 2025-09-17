@@ -18,10 +18,11 @@ use shared_execution_objects::central_objects::CentralTransactionExecutionInfo;
 use starknet::core::types::{BlockId, MaybePendingBlockWithTxHashes, MaybePendingBlockWithTxs};
 use starknet::providers::Provider;
 use starknet_api::block::{BlockHash, BlockNumber, StarknetVersion};
-use starknet_api::core::{ClassHash, ContractAddress};
+use starknet_api::core::{ClassHash, CompiledClassHash, ContractAddress};
 use starknet_api::deprecated_contract_class::ContractClass;
+use starknet_api::state::ContractClassComponentHashes;
 use starknet_api::state::StorageKey;
-use starknet_os::io::os_input::{CommitmentInfo, ContractClassComponentHashes, OsBlockInput};
+use starknet_os::io::os_input::{CommitmentInfo, OsBlockInput};
 use starknet_patricia::hash::hash_trait::HashOutput;
 use starknet_patricia::patricia_merkle_tree::types::SubTreeHeight;
 use starknet_types_core::felt::Felt;
@@ -183,8 +184,8 @@ pub async fn collect_single_block_info(
     rpc_client: RpcClient,
 ) -> (
     OsBlockInput,
-    BTreeMap<ClassHash, CasmContractClass>,
-    BTreeMap<ClassHash, ContractClass>,
+    BTreeMap<CompiledClassHash, CasmContractClass>,
+    BTreeMap<CompiledClassHash, ContractClass>,
     HashSet<ContractAddress>,
     HashSet<ClassHash>,
     HashMap<ContractAddress, HashSet<StorageKey>>,
@@ -301,40 +302,11 @@ pub async fn collect_single_block_info(
     // Extract other contracts used in our block from the block trace
     // We need this to get all the class hashes used and correctly feed address_to_class_hash
     log::debug!(" Step 6: Extracting accessed contracts and classes...");
-    let (accessed_addresses_felt, accessed_classes_felt) =
+    let (mut accessed_addresses_felt, accessed_classes_felt) =
         get_subcalled_contracts_from_tx_traces(&traces);
 
-    // Convert Felt252 to proper types
-    let accessed_addresses: HashSet<ContractAddress> = accessed_addresses_felt
-        .iter()
-        .map(|felt| ContractAddress::try_from(*felt).expect("Invalid contract address"))
-        .collect();
-
-    let mut accessed_classes: HashSet<ClassHash> = accessed_classes_felt
-        .iter()
-        .map(|felt| ClassHash(*felt))
-        .collect();
-
-    // log::debug!(">>>> classes from the traces are: {:?}", accessed_classes);
-    // panic!("temp");
-    log::debug!(
-        "Successfully Found {} accessed addresses and {} accessed classes",
-        accessed_addresses.len(),
-        accessed_classes.len()
-    );
-
-    log::debug!("the addressea are: {:?}", accessed_addresses);
-    log::debug!("the classes are: {:?}", accessed_classes);
     log::debug!(" Step 7: Getting formatted state update...");
-    let processed_state_update = get_formatted_state_update(
-        &rpc_client,
-        previous_block_id,
-        block_id,
-        accessed_addresses_felt,
-        accessed_classes_felt,
-    )
-    .await
-    .expect("issue while calling formatted state update");
+
     // panic!("time out");
     // log::debug!("formatted state update is: {:?}", processed_state_update);
     log::info!("Successfully State update processed successfully");
@@ -413,7 +385,16 @@ pub async fn collect_single_block_info(
         .map(|(execution_info, _)| execution_info)
         .collect();
 
-    // write_serializable_to_file(&txn_execution_infos, &format!("debug/txn_execution_info_{}.json", block_number), None).expect("Failed to write traces to file");
+    log::debug!(
+        "sierra gas is: {:?}",
+        txn_execution_infos[0]
+            .receipt
+            .resources
+            .computation
+            .sierra_gas
+    );
+
+    // write_serializable_to_file(&txn_execution_infos, &format!("debug/mainnet_txn_execution_info_{}.json", block_number), None).expect("Failed to write traces to file");
 
     // panic!("for now");
     let central_txn_execution_infos: Vec<CentralTransactionExecutionInfo> = txn_execution_infos
@@ -422,12 +403,12 @@ pub async fn collect_single_block_info(
         .map(|execution_info| execution_info.clone().into())
         .collect();
 
-    // write_serializable_to_file(
-    //     &central_txn_execution_infos,
-    //     &format!("debug/central_txn_info_{}.json", block_number),
-    //     None,
-    // )
-    // .expect("Failed to write traces to file");
+    write_serializable_to_file(
+        &central_txn_execution_infos,
+        &format!("debug/mainnet_central_txn_info_{}.json", block_number),
+        None,
+    )
+    .expect("Failed to write traces to file");
 
     // central_txn_execution_infos[0].actual_fee  = Fee(central_txn_execution_infos[0].actual_fee.0 - 644127000000000);
     // panic!("temp");
@@ -439,6 +420,57 @@ pub async fn collect_single_block_info(
         "Successfully Got accessed keys for {} contracts",
         accessed_keys_by_address.len()
     );
+
+    accessed_addresses_felt.extend(accessed_keys_by_address.keys().map(|contract_addr| {
+        let felt: Felt = (*contract_addr).into();
+        Felt252::from(felt)
+    }));
+
+    let processed_state_update = get_formatted_state_update(
+        &rpc_client,
+        previous_block_id,
+        block_id,
+        accessed_addresses_felt.clone(),
+        accessed_classes_felt.clone(),
+    )
+    .await
+    .expect("issue while calling formatted state update");
+    log::debug!(
+        "they keys of the compiled class hash is: {:?}",
+        processed_state_update.compiled_classes.keys()
+    );
+    log::debug!(
+        "they keys of the decprecated class hash is: {:?}",
+        processed_state_update.deprecated_compiled_classes.keys()
+    );
+    log::debug!(
+        "they keys of the compiled class hash is: {:?}",
+        processed_state_update.class_hash_to_compiled_class_hash
+    );
+
+    // Convert Felt252 to proper types
+    let accessed_addresses: HashSet<ContractAddress> = accessed_addresses_felt
+        .iter()
+        .map(|felt| ContractAddress::try_from(*felt).expect("Invalid contract address"))
+        .collect();
+
+    let mut accessed_classes: HashSet<ClassHash> = accessed_classes_felt
+        .iter()
+        .map(|felt| ClassHash(*felt))
+        .collect();
+
+    // log::debug!(">>>> classes from the traces are: {:?}", accessed_classes);
+    // panic!("temp");
+    log::debug!(
+        "Successfully Found {} accessed addresses and {} accessed classes",
+        accessed_addresses.len(),
+        accessed_classes.len()
+    );
+
+    log::debug!("the addressea are: {:?}", accessed_addresses);
+    log::debug!("the classes are: {:?}", accessed_classes);
+
+    // panic!("temp");
 
     // Populate accessed_keys_by_address with special address 0x2 based on accessed addresses, classes, and storage mapping
     populate_alias_contract_keys(
@@ -680,11 +712,12 @@ pub async fn collect_single_block_info(
     );
 
     log::debug!(" Step 17: Converting compiled classes to BTreeMap with CompiledClassHash keys...");
-    let mut compiled_classes_btree: BTreeMap<ClassHash, CasmContractClass> = BTreeMap::new();
+    let mut compiled_classes_btree: BTreeMap<CompiledClassHash, CasmContractClass> =
+        BTreeMap::new();
 
     for (class_hash_felt, generic_class) in compiled_classes {
         log::debug!("class hash here is: {:?}", class_hash_felt);
-        let class_hash = ClassHash(class_hash_felt);
+        let class_hash = CompiledClassHash(class_hash_felt);
         let cairo_lang_class = generic_class
             .get_cairo_lang_contract_class()
             .expect("Failed to get cairo-lang contract class")
@@ -717,10 +750,11 @@ pub async fn collect_single_block_info(
         compiled_classes_btree.insert(class_hash, cairo_lang_class);
     }
 
-    let mut deprecated_compiled_classes_btree: BTreeMap<ClassHash, ContractClass> = BTreeMap::new();
+    let mut deprecated_compiled_classes_btree: BTreeMap<CompiledClassHash, ContractClass> =
+        BTreeMap::new();
 
     for (class_hash_felt, generic_class) in deprecated_compiled_classes {
-        let class_hash = ClassHash(class_hash_felt);
+        let class_hash = CompiledClassHash(class_hash_felt);
         let starknet_api_class = generic_class
             .to_starknet_api_contract_class()
             .expect("Failed to convert to starknet-api contract class");

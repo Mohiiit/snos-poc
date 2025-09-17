@@ -40,6 +40,75 @@ fn to_state_err<E: ToString>(e: E) -> StateError {
     StateError::StateReadError(e.to_string())
 }
 
+/// Convert Sierra class to a format that GenericSierraContractClass can handle.
+/// This properly handles the ABI field conversion by going through starknet_core types.
+fn convert_sierra_class_for_generic(
+    sierra_class: &starknet::core::types::FlattenedSierraClass,
+) -> Result<GenericSierraContractClass, StateError> {
+    // Convert starknet::core types to starknet_core types via JSON serialization
+    // This handles the type differences between the crates
+    let sierra_json = serde_json::to_string(sierra_class).map_err(to_state_err)?;
+    let starknet_core_sierra: starknet_core::types::FlattenedSierraClass =
+        serde_json::from_str(&sierra_json).map_err(to_state_err)?;
+
+    // Use the From implementation that properly handles ABI conversion
+    let generic_sierra = GenericSierraContractClass::from(starknet_core_sierra);
+    Ok(generic_sierra)
+}
+
+/// Convert a Sierra contract class using the improved Generic types.
+/// This function uses the approach from snos-core for better type handling.
+fn convert_sierra_to_runnable(
+    sierra_class: starknet::core::types::FlattenedSierraClass,
+) -> Result<RunnableCompiledClass, StateError> {
+    debug!("Converting Sierra contract class using GenericSierraContractClass...");
+
+    // Convert to GenericSierraContractClass using proper From implementation
+    let generic_sierra = convert_sierra_class_for_generic(&sierra_class)?;
+
+    // Get the cairo-lang contract class for version extraction
+    let generic_cairo_lang_class = generic_sierra
+        .get_cairo_lang_contract_class()
+        .map_err(to_state_err)?;
+
+    let (version_id, _) =
+        version_id_from_serialized_sierra_program(&generic_cairo_lang_class.sierra_program)
+            .map_err(to_state_err)?;
+
+    let sierra_version = SierraVersion::new(
+        version_id.major.try_into().map_err(to_state_err)?,
+        version_id.minor.try_into().map_err(to_state_err)?,
+        version_id.patch.try_into().map_err(to_state_err)?,
+    );
+
+    // Try compilation
+    match generic_sierra.compile() {
+        Ok(compiled_class) => {
+            debug!("✅ Sierra compilation succeeded!");
+            let versioned_casm = compiled_class
+                .to_blockifier_contract_class(sierra_version)
+                .map_err(to_state_err)?;
+
+            // Convert VersionedCasm to CompiledClassV1 using TryFrom
+            let compiled_class_v1 = CompiledClassV1::try_from(versioned_casm).map_err(|e| {
+                StateError::StateReadError(format!(
+                    "Failed to convert VersionedCasm to CompiledClassV1: {}",
+                    e
+                ))
+            })?;
+
+            Ok(RunnableCompiledClass::V1(compiled_class_v1))
+        }
+        Err(e) => {
+            warn!("⚠️  Sierra compilation failed: {}", e);
+            Err(StateError::StateReadError(format!(
+                "Sierra compilation failed: {}",
+                e
+            )))
+        }
+    }
+}
+
 impl AsyncRpcStateReader {
     pub async fn get_storage_at_async(
         &self,
@@ -133,81 +202,7 @@ impl AsyncRpcStateReader {
 
         let runnable_contract_class: RunnableCompiledClass = match contract_class {
             starknet::core::types::ContractClass::Sierra(sierra_class) => {
-                // The key insight: Fix the ABI field encoding issue
-                debug!("Converting Sierra contract class with ABI fix...");
-
-                // First, serialize the sierra class to JSON
-                let sierra_json = serde_json::to_string(&sierra_class).map_err(to_state_err)?;
-
-                // Parse the JSON to fix the ABI field
-                let mut sierra_value: serde_json::Value =
-                    serde_json::from_str(&sierra_json).map_err(to_state_err)?;
-
-                // The ABI field is a JSON string, but GenericSierraContractClass expects it to be parseable
-                // Let's check if the ABI field needs to be converted from string to JSON
-                if let Some(abi_field) = sierra_value.get_mut("abi") {
-                    if let Some(abi_str) = abi_field.as_str() {
-                        // Try to parse the ABI string as JSON
-                        match serde_json::from_str::<serde_json::Value>(abi_str) {
-                            Ok(abi_json) => {
-                                debug!("✅ Successfully parsed ABI string as JSON");
-                                *abi_field = abi_json;
-                            }
-                            Err(e) => {
-                                warn!("⚠️  ABI is not valid JSON string: {}", e);
-                                // Keep the ABI as-is if it's not a JSON string
-                            }
-                        }
-                    }
-                }
-
-                // Re-serialize the fixed JSON
-                let fixed_sierra_json =
-                    serde_json::to_string(&sierra_value).map_err(to_state_err)?;
-
-                // Parse as GenericSierraContractClass
-                let generic_sierra =
-                    GenericSierraContractClass::from_bytes(fixed_sierra_json.into_bytes());
-
-                let generic_cairo_lang_class =
-                    generic_sierra.get_cairo_lang_contract_class().unwrap();
-                let (version_id, _) = version_id_from_serialized_sierra_program(
-                    &generic_cairo_lang_class.sierra_program,
-                )
-                .unwrap();
-                let sierra_version = SierraVersion::new(
-                    version_id.major.try_into().unwrap(),
-                    version_id.minor.try_into().unwrap(),
-                    version_id.patch.try_into().unwrap(),
-                );
-
-                // Try compilation
-                match generic_sierra.compile() {
-                    Ok(compiled_class) => {
-                        debug!("✅ Sierra compilation succeeded!");
-                        let versioned_casm = compiled_class
-                            .to_blockifier_contract_class(sierra_version)
-                            .map_err(to_state_err)?;
-
-                        // Convert VersionedCasm to CompiledClassV1 using TryFrom
-                        let compiled_class_v1 =
-                            CompiledClassV1::try_from(versioned_casm).map_err(|e| {
-                                StateError::StateReadError(format!(
-                                    "Failed to convert VersionedCasm to CompiledClassV1: {}",
-                                    e
-                                ))
-                            })?;
-
-                        RunnableCompiledClass::V1(compiled_class_v1)
-                    }
-                    Err(e) => {
-                        warn!("⚠️  Sierra compilation failed: {}", e);
-                        return Err(StateError::StateReadError(format!(
-                            "Sierra compilation failed: {}",
-                            e
-                        )));
-                    }
-                }
+                convert_sierra_to_runnable(sierra_class)?
             }
             starknet::core::types::ContractClass::Legacy(legacy_class) => {
                 // Convert between starknet crate types via serialization
@@ -266,24 +261,8 @@ impl AsyncRpcStateReader {
 
         let class_hash = match contract_class {
             starknet::core::types::ContractClass::Sierra(sierra_class) => {
-                // Apply the same ABI fix as in get_compiled_class_async
-                let sierra_json = serde_json::to_string(&sierra_class).map_err(to_state_err)?;
-                let mut sierra_value: serde_json::Value =
-                    serde_json::from_str(&sierra_json).map_err(to_state_err)?;
-
-                // Fix the ABI field if it's a JSON string
-                if let Some(abi_field) = sierra_value.get_mut("abi") {
-                    if let Some(abi_str) = abi_field.as_str() {
-                        if let Ok(abi_json) = serde_json::from_str::<serde_json::Value>(abi_str) {
-                            *abi_field = abi_json;
-                        }
-                    }
-                }
-
-                let fixed_sierra_json =
-                    serde_json::to_string(&sierra_value).map_err(to_state_err)?;
-                let generic_sierra =
-                    GenericSierraContractClass::from_bytes(fixed_sierra_json.into_bytes());
+                // Use the same conversion logic as convert_sierra_to_runnable for consistency
+                let generic_sierra = convert_sierra_class_for_generic(&sierra_class)?;
                 let compiled_class = generic_sierra.compile().map_err(to_state_err)?;
                 compiled_class.class_hash().map_err(to_state_err)?
             }
@@ -349,29 +328,45 @@ impl StateReader for AsyncRpcStateReader {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use env_logger;
     use log::info;
+    use starknet_core::types::contract::legacy::LegacyContractClass;
     use starknet_types_core::felt::Felt as StarknetTypesFelt;
 
     fn create_test_rpc_client() -> RpcClient {
         // Create a test RPC client with a dummy URL
-        RpcClient::new("https://pathfinder-madara-ci.d.karnot.xyz")
+        RpcClient::new("https://pathfinder-mainnet.d.karnot.xyz")
     }
 
     fn create_test_values() -> (ContractAddress, StorageKey, ClassHash, BlockId) {
         let contract_address = ContractAddress::try_from(StarknetTypesFelt::from_hex_unchecked(
-            "0x4718f5a0fc34cc1af16a1cdee98ffb20c31f5cd61d6ab07201858f4287c938d",
+            "0x593c85fa098c9f23afe37d7fa0eccbd6adb0900ce35400d77a61dddca3552de",
         ))
         .unwrap();
         let storage_key = StorageKey::try_from(StarknetTypesFelt::from_hex_unchecked(
-            "0x3c204dd68b8e800b4f42e438d9ed4ccbba9f8e436518758cd36553715c1d6ab",
+            "0x1379ac0624b939ceb9dede92211d7db5ee174fe28be72245b0a1a2abd81c98f",
         ))
         .unwrap();
         let class_hash = ClassHash(StarknetTypesFelt::from_hex_unchecked(
-            "0x078401746828463e2c3f92ebb261fc82f7d4d4c8d9a80a356c44580dab124cb0",
+            "0x25ec026985a3bf9d0cc1fe17326b245dfdc3ff89b8fde106542a3ea56c5a918",
         ));
-        let block_id = BlockId::Number(1311717);
+        let block_id = BlockId::Number(1943728);
 
         (contract_address, storage_key, class_hash, block_id)
+    }
+
+    #[test]
+    fn test_contract_class_hash() {
+        for raw_artifact in [include_str!("../test_class.txt")] {
+            let artifact = serde_json::from_str::<LegacyContractClass>(raw_artifact).unwrap();
+            let computed_hash = artifact.class_hash().unwrap();
+
+            let expected_hash = Felt::from_hex_unchecked(
+                "0x25ec026985a3bf9d0cc1fe17326b245dfdc3ff89b8fde106542a3ea56c5a918",
+            );
+
+            assert_eq!(computed_hash, expected_hash);
+        }
     }
 
     #[test]
@@ -388,6 +383,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_real_rpc_calls() {
+        env_logger::init();
         let rpc_client = create_test_rpc_client();
         let (contract_address, storage_key, class_hash, block_id) = create_test_values();
         let state_reader = AsyncRpcStateReader::new(rpc_client, block_id);
@@ -485,16 +481,42 @@ mod tests {
                     "✅ get_compiled_class_hash_async succeeded: {:?}",
                     compiled_class_hash
                 );
+                info!("Input class_hash: {:?}", class_hash);
+                info!("Returned compiled_class_hash: {:?}", compiled_class_hash);
+
                 // Verify we got a valid CompiledClassHash value
                 assert_eq!(
                     std::any::type_name_of_val(&compiled_class_hash),
                     "starknet_api::core::CompiledClassHash"
+                );
+
+                // Compare the compiled class hash with the input class hash
+                // For now, let's just verify they're different (as compiled hash should be different from class hash)
+                // and log both values for comparison
+                if compiled_class_hash.0 == class_hash.0 {
+                    info!(
+                        "🔍 Compiled class hash equals input class hash: {:?}",
+                        compiled_class_hash.0
+                    );
+                } else {
+                    info!("🔍 Compiled class hash differs from input class hash:");
+                    info!("  Input class hash:     {:?}", class_hash.0);
+                    info!("  Compiled class hash:  {:?}", compiled_class_hash.0);
+                }
+
+                // Verify the compiled class hash is not zero (should be a valid hash)
+                assert_ne!(
+                    compiled_class_hash.0,
+                    StarknetTypesFelt::ZERO,
+                    "Compiled class hash should not be zero"
                 );
             }
             Err(e) => {
                 panic!("❌ get_compiled_class_hash_async failed: {}", e);
             }
         }
+
+        assert_eq!(1, 2);
 
         info!("🎉 ALL REAL RPC TESTS PASSED! 🎉");
         info!("✅ All type conversions work with real blockchain data");
